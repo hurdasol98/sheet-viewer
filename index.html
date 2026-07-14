@@ -117,6 +117,8 @@
   </div>
   <div class="sp"></div>
   <span class="meta" id="meta"></span>
+  <button id="hide" disabled title="선택 영역의 행/열 숨기기">숨기기</button>
+  <button id="unhide" disabled title="모든 숨김 해제">숨김 해제</button>
   <button id="fmt" disabled title="엑셀 원본 색·서식으로 보기">원본 서식</button>
   <button id="csv" disabled>CSV 저장</button>
   <button id="copy" disabled title="선택 영역 없으면 시트 전체">복사</button>
@@ -143,9 +145,10 @@
 
 <footer>
   <span id="addr">—</span>
-  <span id="cellval">셀을 클릭하면 전체 값 · 드래그하면 합계·평균이 표시됩니다</span>
+  <span id="cellval">셀 클릭 = 전체 값 · 드래그 = 합계·평균 · 헤더 우클릭 = 숨기기</span>
   <span id="stat"></span>
   <span id="cap"></span>
+  <span id="ver" style="opacity:.6">v5</span>
 </footer>
 
 <script>
@@ -508,7 +511,7 @@ function sheetFromCSV(name, rows){
       return { v, n, num: n !== null, s: -1 };
     });
   });
-  const sh = { name, rows: out, maxC, merges: [], widths: [], links: {}, freeze: {}, styles: [], cfCss: [], loaded: true, sortable: true };
+  const sh = { name, rows: out, maxC, merges: [], widths: [], links: {}, freeze: {}, styles: [], cfCss: [], hideC: new Set(), hideR: new Set(), loaded: true, sortable: true };
   sh.load = async () => sh;
   return sh;
 }
@@ -671,13 +674,16 @@ async function parseXlsx(buf){
         merges.push({ r1: rowNum(a), c1: colNum(a), r2: rowNum(b), c2: colNum(b) });
       }
 
-      const widths = [];
+      const widths = [], hideC = new Set(), hideR = new Set();
       for (const co of doc.getElementsByTagName('col')){
         const w = parseFloat(co.getAttribute('width') || 0);
-        if (co.getAttribute('hidden') === '1') continue;
-        for (let i = +co.getAttribute('min') - 1; i <= +co.getAttribute('max') - 1 && i < 2000; i++)
-          widths[i] = Math.max(36, Math.min(520, Math.round(w * 7.2)));
+        const hid = /1|true/.test(co.getAttribute('hidden') || '');
+        for (let i = +co.getAttribute('min') - 1; i <= +co.getAttribute('max') - 1 && i < 2000; i++){
+          if (hid) hideC.add(i); else widths[i] = Math.max(36, Math.min(520, Math.round(w * 7.2)));
+        }
       }
+      for (const r of doc.getElementsByTagName('row'))
+        if (/1|true/.test(r.getAttribute('hidden') || '')) hideR.add(+r.getAttribute('r') - 1);
 
       const pane = doc.getElementsByTagName('pane')[0];
       const freeze = {};
@@ -686,7 +692,7 @@ async function parseXlsx(buf){
         freeze.y = Math.min(4, +(pane.getAttribute('ySplit') || 0));
       }
 
-      Object.assign(sh, { rows, maxC, merges, widths, links, freeze, cfCss: [], loaded: true, sortable: !merges.length });
+      Object.assign(sh, { rows, maxC, merges, widths, links, freeze, hideC, hideR, cfCss: [], loaded: true, sortable: !merges.length });
       try { applyCF(doc, sh, dxfs, theme); } catch(e){ console.warn('조건부 서식 건너뜀', e); }
       return sh;
     };
@@ -1170,7 +1176,7 @@ function parseXls(buf){
         }
       }
       Object.assign(sh, {
-        rows, maxC, merges, widths, links: {}, freeze: {},
+        rows, maxC, merges, widths, links: {}, freeze: {}, hideC: new Set(), hideR: new Set(),
         cfCss: [], loaded: true, sortable: !merges.length
       });
       return sh;
@@ -1243,7 +1249,7 @@ function renderRows(sh, ord, from, to){
   const nCol = sh.maxC + 1, fz = sh.freeze || {}, out = [];
   for (let i = from; i < to; i++){
     const r = ord[i];
-    out.push('<tr data-i="' + i + '"><th>' + (r + 1) + '</th>');
+    out.push('<tr data-i="' + i + '" data-r="' + r + '"><th data-hr="' + r + '">' + (r + 1) + '</th>');
     const row = sh.rows[r] || [];
     for (let c = 0; c < nCol; c++){
       const k = r + ':' + c;
@@ -1287,7 +1293,7 @@ function render(sh){
   }
   hd.push('</tr></thead>');
 
-  $('grid').innerHTML = '<style id="sty">' + (sh.styles.length || (sh.cfCss || []).length ? styleCSS(sh) : '') + '</style>'
+  $('grid').innerHTML = '<style id="hid"></style><style id="sty">' + (sh.styles.length || (sh.cfCss || []).length ? styleCSS(sh) : '') + '</style>'
     + '<table>' + cg.join('') + hd.join('')
     + '<tbody>' + renderRows(sh, ord, 0, SHOWN) + '</tbody></table>'
     + (SHOWN < ord.length ? '<button id="more"></button>' : '');
@@ -1297,7 +1303,38 @@ function render(sh){
   $('cap').textContent = ord.length.toLocaleString() + '행 × ' + nCol + '열';
   $('q').value = ''; HITS = []; HI = -1; $('qn').textContent = '';
   SEL = null; ANCH = null; stat();
+  applyHide();
   $('grid').scrollTop = 0;
+}
+
+
+/* ---------------- 행/열 숨기기 ---------------- */
+function applyHide(){
+  const el = document.getElementById('hid');
+  if (!el || !CUR) return;
+  const hc = [...(CUR.hideC || [])], hr = [...(CUR.hideR || [])];
+  const sel = [];
+  for (const c of hc) sel.push('#grid td[data-c="' + c + '"]', '#grid thead th[data-c="' + c + '"]');
+  for (const r of hr) sel.push('#grid tbody tr[data-r="' + r + '"]');
+  el.textContent = sel.length ? sel.join(',') + '{display:none}' : '';
+  const n = hc.length + hr.length;
+  $('unhide').disabled = !n;
+  $('unhide').textContent = n ? '숨김 해제 (' + n + ')' : '숨김 해제';
+  $('unhide').classList.toggle('on', !!n);
+  const marks = new Set(hc.map(c => c - 1).concat(hc.map(c => c + 1)));
+  for (const th of $('grid').querySelectorAll('thead th[data-c]'))
+    th.style.borderRight = marks.has(+th.dataset.c) && !CUR.hideC.has(+th.dataset.c)
+      ? '2px solid var(--accent)' : '';
+}
+function hideSel(){
+  if (!CUR) return;
+  const r = selRange();
+  if (!r){ $('cellval').textContent = '숨길 행/열을 먼저 선택하세요 (헤더 우클릭도 가능)'; return; }
+  // 선택이 열 방향으로 넓으면 열, 행 방향으로 길면 행 숨김
+  const nc = r.c2 - r.c1 + 1, nr = r.r2 - r.r1 + 1;
+  if (nc >= nr) for (let c = r.c1; c <= r.c2; c++) CUR.hideC.add(c);
+  else for (let i = r.r1; i <= r.r2; i++) CUR.hideR.add(i);
+  SEL = null; paint(); stat(); applyHide();
 }
 
 function freeze(sh){
@@ -1404,8 +1441,10 @@ function stat(){
   if (!r || (r.r1 === r.r2 && r.c1 === r.c2)){ $('stat').textContent = ''; return; }
   let n = 0, cnt = 0, sum = 0, mn = Infinity, mx = -Infinity;
   for (let i = r.r1; i <= r.r2; i++){
+    if (CUR.hideR.has(i)) continue;
     const row = CUR.rows[i] || [];
     for (let c = r.c1; c <= r.c2; c++){
+      if (CUR.hideC.has(c)) continue;
       const cell = row[c];
       if (!cell) continue;
       cnt++;
@@ -1456,7 +1495,7 @@ async function openFiles(list){
   if (!FILES.length) return;
   $('drop').style.display = 'none';
   $('main').style.display = 'flex';
-  ['q','csv','copy','prev','next','fmt'].forEach(id => $(id).disabled = false);
+  ['q','csv','copy','prev','next','fmt','hide'].forEach(id => $(id).disabled = false);
   await pickFile(FILES.length - 1);
 }
 
@@ -1492,8 +1531,12 @@ function grid2d(sh, r){
   for (let i = 0; i < ord.length; i++){
     const ri = ord[i];
     if (r && (ri < R1 || ri > R2)) continue;
+    if (sh.hideR.has(ri)) continue;
     const row = sh.rows[ri] || [], line = [];
-    for (let c = C1; c <= C2; c++) line.push(row[c] ? row[c].v : '');
+    for (let c = C1; c <= C2; c++){
+      if (sh.hideC.has(c)) continue;
+      line.push(row[c] ? row[c].v : '');
+    }
     res.push(line);
   }
   return res;
@@ -1615,6 +1658,32 @@ $('copy').onclick = async () => {
     ta.remove();
   }
   setTimeout(() => b.textContent = '복사', 1200);
+};
+
+
+/* 헤더 우클릭 → 숨기기 / 더블클릭 → 그 열 숨김 해제 */
+grid.addEventListener('contextmenu', e => {
+  const th = e.target.closest('thead th[data-c]');
+  const rh = e.target.closest('tbody th[data-hr]');
+  if (!th && !rh) return;
+  e.preventDefault();
+  const r = selRange();
+  if (th){
+    const c = +th.dataset.c;
+    if (r && c >= r.c1 && c <= r.c2) for (let i = r.c1; i <= r.c2; i++) CUR.hideC.add(i);
+    else CUR.hideC.add(c);
+  } else {
+    const rr = +rh.dataset.hr;
+    if (r && rr >= r.r1 && rr <= r.r2) for (let i = r.r1; i <= r.r2; i++) CUR.hideR.add(i);
+    else CUR.hideR.add(rr);
+  }
+  SEL = null; paint(); stat(); applyHide();
+});
+$('hide').onclick = hideSel;
+$('unhide').onclick = () => {
+  if (!CUR) return;
+  CUR.hideC.clear(); CUR.hideR.clear();
+  applyHide();
 };
 
 $('fmt').onclick = () => {
