@@ -1,0 +1,17 @@
+{
+  "name": "표 뷰어 — xlsx / xls / csv",
+  "short_name": "표 뷰어",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10131a",
+  "theme_color": "#10131a",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%2310131a'/%3E%3Cpath d='M96 144h320M96 256h320M96 368h320M208 96v320M336 96v320' stroke='%234fd1a5' stroke-width='28'/%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

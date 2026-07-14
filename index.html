@@ -1,0 +1,1674 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>표 뷰어 — xlsx / xls / csv</title>
+<meta name="description" content="브라우저 안에서만 동작하는 엑셀/CSV 뷰어. 파일 업로드 없음.">
+<meta name="theme-color" content="#10131a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2310131a'/%3E%3Cpath d='M6 9h20M6 16h20M6 23h20M13 6v20M22 6v20' stroke='%234fd1a5' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+  html[data-theme="dark"]{
+    --bg:#10131a; --panel:#171b24; --line:#272e3c; --line2:#39435a;
+    --txt:#e6eaf2; --dim:#8b95a8; --accent:#4fd1a5; --hl:#f2c14e;
+    --head:#1e2431; --row:#151922; --row2:#191e29; --sel:#22303f;
+    --hitbg:#2c3d33; --rng:#4fd1a526; --link:#6fb3ff;
+  }
+  html[data-theme="light"]{
+    --bg:#f7f8fa; --panel:#fff; --line:#e2e5eb; --line2:#c9cfd9;
+    --txt:#1b2029; --dim:#6b7383; --accent:#0f8f6b; --hl:#a06a00;
+    --head:#eef1f5; --row:#fff; --row2:#f7f9fb; --sel:#e6f2ee;
+    --hitbg:#fff2c9; --rng:#0f8f6b1a; --link:#1a5fd0;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:13px/1.5 "Malgun Gothic","맑은 고딕",Pretendard,-apple-system,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden}
+
+  header{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--panel);
+    border-bottom:1px solid var(--line);flex:0 0 auto;flex-wrap:wrap}
+  h1{font-size:14px;margin:0 6px 0 0;font-weight:700;letter-spacing:-.2px}
+  h1 span{color:var(--accent)}
+  .sp{flex:1}
+  .meta{color:var(--dim);font-size:11px;white-space:nowrap;max-width:38vw;overflow:hidden;text-overflow:ellipsis}
+  button,label.btn{background:var(--head);color:var(--txt);border:1px solid var(--line2);
+    border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
+  button:hover:not(:disabled),label.btn:hover{border-color:var(--accent);color:var(--accent)}
+  button:disabled{opacity:.4;cursor:default}
+  button.on{border-color:var(--accent);color:var(--accent)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  input[type=file]{display:none}
+  input[type=search]{background:var(--bg);border:1px solid var(--line2);color:var(--txt);
+    border-radius:6px;padding:5px 8px;font-size:12px;width:140px}
+  .find{display:flex;align-items:center;gap:3px}
+  .find small{color:var(--dim);min-width:48px;font-size:11px}
+
+  #drop{flex:1;display:flex;align-items:center;justify-content:center;margin:16px;
+    border:1.5px dashed var(--line2);border-radius:12px;color:var(--dim);text-align:center}
+  #drop.hot{border-color:var(--accent);color:var(--accent)}
+  #drop b{display:block;color:var(--txt);font-size:15px;margin-bottom:6px}
+  #drop small{font-size:11px;line-height:1.9}
+
+  #main{flex:1;display:none;flex-direction:column;min-height:0}
+  .tabs{display:flex;gap:2px;padding:5px 10px 0;background:var(--panel);overflow-x:auto;flex:0 0 auto}
+  .tabs button{border-radius:6px 6px 0 0;border-bottom:none;padding:4px 12px}
+  .tabs button.on{background:var(--head)}
+  .tabs button.hid{opacity:.55;font-style:italic}
+  #files{padding-top:6px;border-bottom:1px solid var(--line)}
+
+  #grid{flex:1;overflow:auto;background:var(--bg);position:relative;outline:none}
+  table{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
+  th,td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+    padding:3px 8px;overflow:hidden;text-overflow:ellipsis;white-space:pre;vertical-align:middle;max-width:520px}
+  thead th{position:sticky;top:0;z-index:5;background:var(--head);color:var(--dim);
+    font-weight:600;text-align:center;font-size:11px;cursor:pointer;user-select:none}
+  thead th.res{cursor:col-resize}
+  thead th .ar{color:var(--accent);font-size:9px}
+  tbody th{position:sticky;left:0;z-index:4;background:var(--head);color:var(--dim);
+    font-weight:400;text-align:right;font-size:11px;min-width:46px}
+  thead th:first-child{left:0;z-index:6;cursor:default}
+  tbody tr:nth-child(even) td{background:var(--row2)}
+  tbody tr:nth-child(odd) td{background:var(--row)}
+  tbody tr:hover td{background:var(--sel)}
+  td.num{text-align:right}
+  td.hit{background:var(--hitbg)!important;color:var(--hl)}
+  td.rng{background:var(--rng)!important}
+  td.cur{outline:2px solid var(--accent);outline-offset:-2px;z-index:3;position:relative}
+  td a{color:var(--link)}
+  .fz{position:sticky;z-index:3}
+  th.fz{z-index:4}
+
+  /* 원본 서식 모드 */
+  #grid.fmt tbody td{background:#fff;color:#000;border-color:#d0d0d0}
+  #grid.fmt tbody tr:hover td{background:#fff}
+  #grid.fmt td.rng{background:var(--rng)!important}
+  #grid.fmt td.hit{background:#ffe9a8!important;color:#7a4b00}
+
+  #more{display:block;margin:12px auto;padding:6px 18px}
+  #err{padding:14px;color:#e05252;white-space:pre-wrap;font-size:12px;flex:0 0 auto}
+  html[data-theme="dark"] #err{color:#ff8a8a}
+
+  footer{padding:5px 12px;background:var(--panel);border-top:1px solid var(--line);
+    color:var(--dim);font-size:11px;flex:0 0 auto;display:flex;gap:12px;align-items:center}
+  #addr{color:var(--accent);font-weight:700;min-width:50px}
+  #cellval{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
+  #stat{white-space:nowrap;font-variant-numeric:tabular-nums}
+  #stat b{color:var(--txt);font-weight:600}
+
+  @media print{
+    header,footer,.tabs,#more{display:none}
+    body,#grid{overflow:visible;height:auto}
+    td,th{border:1px solid #999!important;background:#fff!important;color:#000!important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>표 <span>뷰어</span></h1>
+  <label class="btn">파일 열기<input type="file" id="file" accept=".xlsx,.xlsm,.xltx,.xls,.csv,.tsv,.txt" multiple></label>
+  <div class="find">
+    <input type="search" id="q" placeholder="검색 (Ctrl+F)" disabled>
+    <button id="prev" disabled title="이전 · Shift+Enter">↑</button>
+    <button id="next" disabled title="다음 · Enter">↓</button>
+    <small id="qn"></small>
+  </div>
+  <div class="sp"></div>
+  <span class="meta" id="meta"></span>
+  <button id="fmt" disabled title="엑셀 원본 색·서식으로 보기">원본 서식</button>
+  <button id="csv" disabled>CSV 저장</button>
+  <button id="copy" disabled title="선택 영역 없으면 시트 전체">복사</button>
+  <button id="theme">라이트</button>
+</header>
+
+<div id="drop">
+  <div>
+    <b>xlsx · xls · xlsm · csv · tsv 끌어다 놓기</b>
+    <small>
+      설치 불필요 · 외부 라이브러리 없음 · 서버 전송 없음<br>
+      셀 서식·조건부 서식·병합·틀 고정 재현 · 구형 xls 지원 · 여러 파일 동시 열기
+    </small>
+  </div>
+</div>
+
+<div id="main">
+  <div class="tabs" id="files"></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="grid" tabindex="0"></div>
+</div>
+
+<div id="err" hidden></div>
+
+<footer>
+  <span id="addr">—</span>
+  <span id="cellval">셀을 클릭하면 전체 값 · 드래그하면 합계·평균이 표시됩니다</span>
+  <span id="stat"></span>
+  <span id="cap"></span>
+</footer>
+
+<script>
+'use strict';
+/* ==========================================================================
+   표 뷰어 v3 — 단일 HTML, 외부 의존성 0
+   xlsx: ZIP 직접 파싱 → DecompressionStream (미지원 시 자체 inflate)
+   서식: fills/fonts/borders/alignment + theme1.xml 테마색 + numFmt 엔진
+   ========================================================================== */
+
+/* ---------------- inflate 폴백 ---------------- */
+function inflateRaw(src){
+  let bp = 0;
+  const bits = n => { let v = 0; for (let i = 0; i < n; i++){ v |= ((src[bp >> 3] >> (bp & 7)) & 1) << i; bp++; } return v; };
+  let out = new Uint8Array(1 << 16), olen = 0;
+  const push = b => { if (olen === out.length){ const t = new Uint8Array(out.length * 2); t.set(out); out = t; } out[olen++] = b; };
+  const build = lens => {
+    const count = new Int32Array(16);
+    for (let i = 0; i < lens.length; i++) count[lens[i]]++;
+    count[0] = 0;
+    const offs = new Int32Array(17);
+    for (let i = 1; i <= 15; i++) offs[i + 1] = offs[i] + count[i];
+    const symbols = new Int32Array(lens.length);
+    for (let s = 0; s < lens.length; s++) if (lens[s]) symbols[offs[lens[s]]++] = s;
+    return { count, symbols };
+  };
+  const decode = t => {
+    let code = 0, first = 0, index = 0;
+    for (let len = 1; len <= 15; len++){
+      code |= bits(1);
+      const cnt = t.count[len];
+      if (code - first < cnt) return t.symbols[index + (code - first)];
+      index += cnt; first = (first + cnt) << 1; code <<= 1;
+    }
+    throw new Error('압축 데이터 손상');
+  };
+  const LB=[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+  const LE=[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+  const DB=[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+  const DE=[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+  const ORD=[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+  let fL = null, fD = null;
+  for(;;){
+    const last = bits(1), type = bits(2);
+    if (type === 0){
+      bp = (bp + 7) & ~7;
+      let p = bp >> 3;
+      const len = src[p] | (src[p+1] << 8); p += 4;
+      for (let i = 0; i < len; i++) push(src[p + i]);
+      bp = (p + len) << 3;
+    } else {
+      let lt, dt;
+      if (type === 1){
+        if (!fL){
+          const l = new Uint8Array(288);
+          l.fill(8,0,144); l.fill(9,144,256); l.fill(7,256,280); l.fill(8,280,288);
+          fL = build(l); fD = build(new Uint8Array(30).fill(5));
+        }
+        lt = fL; dt = fD;
+      } else if (type === 2){
+        const hlit = bits(5)+257, hdist = bits(5)+1, hclen = bits(4)+4;
+        const cl = new Uint8Array(19);
+        for (let i = 0; i < hclen; i++) cl[ORD[i]] = bits(3);
+        const ct = build(cl);
+        const lens = new Uint8Array(hlit + hdist);
+        for (let i = 0; i < lens.length;){
+          const s = decode(ct);
+          if (s < 16) lens[i++] = s;
+          else if (s === 16){ const p = lens[i-1]; let r = 3 + bits(2); while (r--) lens[i++] = p; }
+          else if (s === 17){ let r = 3 + bits(3); while (r--) lens[i++] = 0; }
+          else { let r = 11 + bits(7); while (r--) lens[i++] = 0; }
+        }
+        lt = build(lens.subarray(0, hlit)); dt = build(lens.subarray(hlit));
+      } else throw new Error('압축 블록 형식 오류');
+      for(;;){
+        const s = decode(lt);
+        if (s < 256){ push(s); continue; }
+        if (s === 256) break;
+        const si = s - 257, len = LB[si] + bits(LE[si]);
+        const d = decode(dt), dist = DB[d] + bits(DE[d]);
+        let p = olen - dist;
+        for (let i = 0; i < len; i++) push(out[p + i]);
+      }
+    }
+    if (last) break;
+  }
+  return out.subarray(0, olen);
+}
+
+/* ---------------- ZIP ---------------- */
+const NATIVE = (() => { try { new DecompressionStream('deflate-raw'); return true; } catch { return false; } })();
+
+async function unzip(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), dec = new TextDecoder();
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--)
+    if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  if (eocd < 0) throw new Error('ZIP 구조가 아닙니다.');
+  let count = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
+  if (cdOff === 0xffffffff || count === 0xffff){
+    for (let i = eocd - 20; i >= 0; i--) if (dv.getUint32(i, true) === 0x07064b50){
+      const z = Number(dv.getBigUint64(i + 8, true));
+      count = Number(dv.getBigUint64(z + 32, true));
+      cdOff = Number(dv.getBigUint64(z + 48, true));
+      break;
+    }
+  }
+  const files = {};
+  let p = cdOff;
+  for (let n = 0; n < count; n++){
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true);
+    let csize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true), extLen = dv.getUint16(p + 30, true), cmtLen = dv.getUint16(p + 32, true);
+    let lho = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nameLen));
+    if (csize === 0xffffffff || lho === 0xffffffff){
+      let e = p + 46 + nameLen; const end = e + extLen;
+      while (e < end){
+        const id = dv.getUint16(e, true), sz = dv.getUint16(e + 2, true);
+        if (id === 0x0001){
+          let q = e + 4;
+          if (dv.getUint32(p + 24, true) === 0xffffffff) q += 8;
+          if (csize === 0xffffffff){ csize = Number(dv.getBigUint64(q, true)); q += 8; }
+          if (lho === 0xffffffff) lho = Number(dv.getBigUint64(q, true));
+          break;
+        }
+        e += 4 + sz;
+      }
+    }
+    const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+    files[name] = { method, data: u8.subarray(start, start + csize) };
+    p += 46 + nameLen + extLen + cmtLen;
+  }
+  return {
+    async text(n){
+      const f = files[n];
+      if (!f) return null;
+      if (f.method === 0) return dec.decode(f.data);
+      if (f.method !== 8) throw new Error('지원하지 않는 압축 방식(' + f.method + ')');
+      if (NATIVE){
+        const rs = new Blob([f.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return await new Response(rs).text();
+      }
+      return dec.decode(inflateRaw(f.data));
+    }
+  };
+}
+
+/* ---------------- 유틸 ---------------- */
+const $ = id => document.getElementById(id);
+const XML = s => new DOMParser().parseFromString(s, 'application/xml');
+const colNum = r => { let c = 0; for (const ch of r){ if (ch < 'A' || ch > 'Z') break; c = c * 26 + ch.charCodeAt(0) - 64; } return c - 1; };
+const rowNum = r => parseInt(r.replace(/^[A-Z]+/, ''), 10) - 1;
+const colName = i => { let s = ''; i++; while (i > 0){ const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = (i - 1 - m) / 26; } return s; };
+const esc = s => s.replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const pad = n => String(n).padStart(2, '0');
+const nf = new Intl.NumberFormat('en-US', { maximumFractionDigits: 20 });
+
+/* ---------------- 색상 (theme / indexed / tint) ---------------- */
+const INDEXED = ['000000','FFFFFF','FF0000','00FF00','0000FF','FFFF00','FF00FF','00FFFF','000000','FFFFFF','FF0000','00FF00','0000FF','FFFF00','FF00FF','00FFFF','800000','008000','000080','808000','800080','008080','C0C0C0','808080','9999FF','993366','FFFFCC','CCFFFF','660066','FF8080','0066CC','CCCCFF','000080','FF00FF','FFFF00','00FFFF','800080','800000','008080','0000FF','00CCFF','CCFFFF','CCFFCC','FFFF99','99CCFF','FF99CC','CC99FF','FFCC99','3366FF','33CCCC','99CC00','FFCC00','FF9900','FF6600','666699','969696','003366','339966','003300','333300','993300','993366','333399','333333'];
+function tintHex(hex, tint){
+  if (!tint) return hex;
+  let r = parseInt(hex.slice(0,2),16)/255, g = parseInt(hex.slice(2,4),16)/255, b = parseInt(hex.slice(4,6),16)/255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b);
+  let h = 0, s = 0, l = (max + min) / 2;
+  const d = max - min;
+  if (d){
+    s = l > .5 ? d / (2 - max - min) : d / (max + min);
+    h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? ((b - r) / d + 2) : ((r - g) / d + 4);
+    h /= 6;
+  }
+  l = tint < 0 ? l * (1 + tint) : l * (1 - tint) + tint;
+  const hue = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p; };
+  let R, G, B;
+  if (!s) R = G = B = l;
+  else {
+    const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    R = hue(p, q, h + 1/3); G = hue(p, q, h); B = hue(p, q, h - 1/3);
+  }
+  const hx = v => pad(Math.round(v * 255).toString(16)).toUpperCase();
+  return hx(R) + hx(G) + hx(B);
+}
+function colorOf(node, theme){
+  if (!node) return null;
+  const rgb = node.getAttribute('rgb');
+  const tint = parseFloat(node.getAttribute('tint') || 0);
+  let hex = null;
+  if (rgb) hex = rgb.length === 8 ? rgb.slice(2) : rgb;
+  else if (node.hasAttribute('theme')) hex = theme[+node.getAttribute('theme')] || null;
+  else if (node.hasAttribute('indexed')) hex = INDEXED[+node.getAttribute('indexed')] || null;
+  if (!hex) return null;
+  return '#' + tintHex(hex.toUpperCase(), tint);
+}
+
+/* ---------------- 숫자/날짜 서식 엔진 ---------------- */
+const BUILTIN = {
+  0:'General',1:'0',2:'0.00',3:'#,##0',4:'#,##0.00',9:'0%',10:'0.00%',11:'0.00E+00',
+  12:'# ?/?',13:'# ??/??',14:'yyyy-mm-dd',15:'d-mmm-yy',16:'d-mmm',17:'mmm-yy',18:'h:mm AM/PM',
+  19:'h:mm:ss AM/PM',20:'h:mm',21:'h:mm:ss',22:'yyyy-mm-dd h:mm',37:'#,##0;-#,##0',38:'#,##0;[Red]-#,##0',
+  39:'#,##0.00;-#,##0.00',40:'#,##0.00;[Red]-#,##0.00',45:'mm:ss',46:'[h]:mm:ss',47:'mm:ss.0',
+  48:'##0.0E+0',49:'@'
+};
+const splitSections = code => {
+  const out = []; let cur = '', q = false, br = false;
+  for (const ch of code){
+    if (ch === '"') q = !q;
+    if (ch === '[') br = true;
+    if (ch === ']') br = false;
+    if (ch === ';' && !q && !br){ out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+};
+const isDateFmt = s => {
+  const bare = s.replace(/\[[^\]]*\]/g,'').replace(/"[^"]*"/g,'').replace(/\\./g,'');
+  return /[ymdhs]/i.test(bare) && !/[#?]/.test(bare.replace(/[^#?]/g,'')) ;
+};
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function fmtDate(v, sec, d1904){
+  const base = d1904 ? 24107 : 25569;
+  const dt = new Date(Math.round((v - base) * 86400000));
+  if (isNaN(dt)) return String(v);
+  const Y = dt.getUTCFullYear(), M = dt.getUTCMonth() + 1, D = dt.getUTCDate();
+  const h24 = dt.getUTCHours(), mi = dt.getUTCMinutes(), se = dt.getUTCSeconds();
+  const ap = /am\/pm|a\/p/i.test(sec);
+  const h12 = h24 % 12 || 12;
+  let out = '', i = 0;
+  const s = sec.replace(/\[[^\]]*\]/g, '');
+  while (i < s.length){
+    const rest = s.slice(i);
+    let m;
+    if (s[i] === '"'){ const e = s.indexOf('"', i + 1); out += s.slice(i + 1, e < 0 ? s.length : e); i = (e < 0 ? s.length : e + 1); continue; }
+    if (s[i] === '\\'){ out += s[i + 1] || ''; i += 2; continue; }
+    if ((m = /^(am\/pm|a\/p)/i.exec(rest))){ out += h24 < 12 ? 'AM' : 'PM'; i += m[0].length; continue; }
+    if ((m = /^y{3,4}/i.exec(rest))){ out += Y; i += m[0].length; continue; }
+    if ((m = /^y{1,2}/i.exec(rest))){ out += pad(Y % 100); i += m[0].length; continue; }
+    if ((m = /^d{4}/i.exec(rest))){ out += DAY[dt.getUTCDay()]; i += 4; continue; }
+    if ((m = /^d{3}/i.exec(rest))){ out += DAY[dt.getUTCDay()]; i += 3; continue; }
+    if ((m = /^d{2}/i.exec(rest))){ out += pad(D); i += 2; continue; }
+    if ((m = /^d/i.exec(rest))){ out += D; i += 1; continue; }
+    if ((m = /^h{1,2}/i.exec(rest))){ const hv = ap ? h12 : h24; out += m[0].length > 1 ? pad(hv) : hv; i += m[0].length; continue; }
+    if ((m = /^s{1,2}/i.exec(rest))){ out += m[0].length > 1 ? pad(se) : se; i += m[0].length; continue; }
+    if ((m = /^m{5}/i.exec(rest))){ out += MON[M-1][0]; i += 5; continue; }
+    if ((m = /^m{4}/i.exec(rest))){ out += MON[M-1]; i += 4; continue; }
+    if ((m = /^m{3}/i.exec(rest))){ out += MON[M-1]; i += 3; continue; }
+    if ((m = /^m{1,2}/i.exec(rest))){
+      const prev = out.replace(/[^0-9A-Za-z:]/g, '').slice(-1);
+      const minute = /:$/.test(s.slice(0, i)) || /^:/.test(s.slice(i + m[0].length)) && /h/i.test(s.slice(0, i));
+      const val = minute ? mi : M;
+      out += m[0].length > 1 ? pad(val) : val;
+      i += m[0].length; continue;
+    }
+    out += s[i]; i++;
+  }
+  return out.replace(/_./g, ' ').replace(/\*/g, '');
+}
+
+function fmtNumber(v, sec){
+  let s = sec.replace(/\[[^\]]*\]/g, '');
+  const pct = s.includes('%');
+  if (pct) v *= 100;
+  const pm = /[#0][#0,.?]*/.exec(s);
+  if (!pm) return { text: s.replace(/"/g, '').replace(/\\/g, '').replace(/_./g, ' '), };
+  const pat = pm[0];
+  const dot = pat.indexOf('.');
+  const dec = dot < 0 ? 0 : (pat.slice(dot + 1).match(/[0#?]/g) || []).length;
+  const minInt = ((dot < 0 ? pat : pat.slice(0, dot)).match(/0/g) || []).length;
+  const grp = /[#0],[#0]/.test(pat) || /,#|,0/.test(pat);
+  const isE = /E\+?0/i.test(s);
+
+  let body;
+  if (isE) body = v.toExponential(dec);
+  else {
+    const fixed = Math.abs(v).toFixed(dec);
+    let [ip, fp] = fixed.split('.');
+    if (ip.length < minInt) ip = ip.padStart(minInt, '0');
+    if (grp) ip = ip.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    if (minInt === 0 && ip === '0' && dec > 0) ip = '';
+    body = ip + (fp ? '.' + fp : '');
+  }
+  let out = s.slice(0, pm.index) + body + s.slice(pm.index + pat.length);
+  out = out.replace(/E\+?0+/i, '').replace(/"([^"]*)"/g, '$1').replace(/\\(.)/g, '$1').replace(/_./g, ' ').replace(/\*(.)/g, '');
+  return { text: out };
+}
+
+function makeFmt(code, d1904){
+  if (!code || code === 'General' || code === '@') return null;
+  const secs = splitSections(code);
+  return v => {
+    if (typeof v !== 'number') return { text: String(v) };
+    const i = v > 0 ? 0 : v < 0 ? Math.min(1, secs.length - 1) : Math.min(2, secs.length - 1);
+    let sec = secs[i] || secs[0];
+    const red = /\[Red\]/i.test(sec);
+    if (isDateFmt(sec)) return { text: fmtDate(v, sec, d1904), red };
+    const neg = v < 0 && i === 0;
+    const r = fmtNumber(Math.abs(v) === v ? v : (secs.length > 1 ? Math.abs(v) : v), sec);
+    return { text: (neg && secs.length === 1 && !r.text.startsWith('-') ? '' : '') + r.text, red };
+  };
+}
+const general = v => typeof v === 'number'
+  ? { text: (Math.abs(v) >= 1e15 || (v !== 0 && Math.abs(v) < 1e-9)) ? v.toExponential(6) : String(+v.toFixed(10)) }
+  : { text: String(v) };
+
+/* ---------------- CSV ---------------- */
+function decodeText(buf){
+  const u8 = new Uint8Array(buf);
+  if (u8[0]===0xEF && u8[1]===0xBB && u8[2]===0xBF) return { text: new TextDecoder('utf-8').decode(u8.subarray(3)), enc: 'UTF-8 (BOM)' };
+  if (u8[0]===0xFF && u8[1]===0xFE) return { text: new TextDecoder('utf-16le').decode(u8), enc: 'UTF-16LE' };
+  if (u8[0]===0xFE && u8[1]===0xFF) return { text: new TextDecoder('utf-16be').decode(u8), enc: 'UTF-16BE' };
+  try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(u8), enc: 'UTF-8' }; }
+  catch {
+    try { return { text: new TextDecoder('euc-kr').decode(u8), enc: 'CP949' }; }
+    catch { return { text: new TextDecoder().decode(u8), enc: '알 수 없음' }; }
+  }
+}
+function sniffDelim(text, name){
+  if (/\.tsv$/i.test(name)) return '\t';
+  const head = text.slice(0, 20000).split(/\r?\n/).slice(0, 20).join('\n');
+  let best = ',', bn = -1;
+  for (const d of [',', '\t', ';', '|']){
+    let n = 0, q = false;
+    for (const ch of head){ if (ch === '"') q = !q; else if (!q && ch === d) n++; }
+    if (n > bn){ bn = n; best = d; }
+  }
+  return best;
+}
+function parseCSV(text, d){
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if (q){
+      if (ch === '"'){ if (text[i+1] === '"'){ cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    }
+    else if (ch === '"') q = true;
+    else if (ch === d){ row.push(cell); cell = ''; }
+    else if (ch === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; }
+    else if (ch !== '\r') cell += ch;
+  }
+  if (cell !== '' || row.length){ row.push(cell); rows.push(row); }
+  while (rows.length && rows[rows.length-1].every(v => v === '')) rows.pop();
+  return rows;
+}
+function sheetFromCSV(name, rows){
+  let maxC = 0;
+  const out = rows.map(r => {
+    if (r.length - 1 > maxC) maxC = r.length - 1;
+    return r.map(v => {
+      if (v === '') return undefined;
+      const t = v.replace(/,/g, '');
+      const n = /^-?\d*\.?\d+$/.test(t) ? +t : null;
+      return { v, n, num: n !== null, s: -1 };
+    });
+  });
+  const sh = { name, rows: out, maxC, merges: [], widths: [], links: {}, freeze: {}, styles: [], cfCss: [], loaded: true, sortable: true };
+  sh.load = async () => sh;
+  return sh;
+}
+
+/* ---------------- XLSX ---------------- */
+async function parseXlsx(buf){
+  const z = await unzip(buf);
+
+  // 테마색
+  const theme = [];
+  const th = await z.text('xl/theme/theme1.xml');
+  if (th){
+    const cs = XML(th).getElementsByTagName('clrScheme')[0];
+    if (cs) for (const c of cs.children){
+      const srgb = c.getElementsByTagName('srgbClr')[0], sys = c.getElementsByTagName('sysClr')[0];
+      theme.push((srgb && srgb.getAttribute('val')) || (sys && sys.getAttribute('lastClr')) || '000000');
+    }
+    if (theme.length >= 4){ [theme[0], theme[1]] = [theme[1], theme[0]]; [theme[2], theme[3]] = [theme[3], theme[2]]; }
+  }
+
+  // 공유 문자열
+  const shared = [];
+  const ss = await z.text('xl/sharedStrings.xml');
+  if (ss) for (const si of XML(ss).getElementsByTagName('si')){
+    let t = '';
+    for (const n of si.getElementsByTagName('t')) t += n.textContent;
+    shared.push(t);
+  }
+
+  const wbx = XML(await z.text('xl/workbook.xml'));
+  const wpr = wbx.getElementsByTagName('workbookPr')[0];
+  const d1904 = !!wpr && /1|true/.test(wpr.getAttribute('date1904') || '');
+
+  // 스타일
+  const styles = [], dxfs = [];
+  const stx = await z.text('xl/styles.xml');
+  if (stx){
+    const sd = XML(stx);
+    const dx = sd.getElementsByTagName('dxfs')[0];
+    if (dx) for (const d of dx.children) dxfs.push(dxfCss(d, theme));
+    const codes = {};
+    for (const n of sd.getElementsByTagName('numFmt')) codes[n.getAttribute('numFmtId')] = n.getAttribute('formatCode') || '';
+
+    const fonts = [...(sd.getElementsByTagName('fonts')[0]?.children || [])].map(f => ({
+      b: !!f.getElementsByTagName('b').length,
+      i: !!f.getElementsByTagName('i').length,
+      u: !!f.getElementsByTagName('u').length,
+      st: !!f.getElementsByTagName('strike').length,
+      color: colorOf(f.getElementsByTagName('color')[0], theme),
+      size: parseFloat(f.getElementsByTagName('sz')[0]?.getAttribute('val') || 11)
+    }));
+    const fills = [...(sd.getElementsByTagName('fills')[0]?.children || [])].map(f => {
+      const p = f.getElementsByTagName('patternFill')[0];
+      if (!p || (p.getAttribute('patternType') || 'none') === 'none') return null;
+      return colorOf(p.getElementsByTagName('fgColor')[0], theme);
+    });
+    const borders = [...(sd.getElementsByTagName('borders')[0]?.children || [])].map(b => {
+      const side = t => {
+        const e = b.getElementsByTagName(t)[0];
+        if (!e || !e.getAttribute('style')) return null;
+        const w = /thick|double/.test(e.getAttribute('style')) ? 2 : 1;
+        return w + 'px solid ' + (colorOf(e.getElementsByTagName('color')[0], theme) || '#8a8a8a');
+      };
+      return { t: side('top'), r: side('right'), b: side('bottom'), l: side('left') };
+    });
+
+    const xfs = sd.getElementsByTagName('cellXfs')[0];
+    if (xfs) for (const xf of xfs.children){
+      const id = +(xf.getAttribute('numFmtId') || 0);
+      const code = codes[id] !== undefined ? codes[id] : (BUILTIN[id] || 'General');
+      const al = xf.getElementsByTagName('alignment')[0];
+      const f = fonts[+(xf.getAttribute('fontId') || 0)] || {};
+      styles.push({
+        fmt: makeFmt(code, d1904),
+        text: code === '@',
+        bg: xf.getAttribute('applyFill') === '0' ? null : (fills[+(xf.getAttribute('fillId') || 0)] || null),
+        font: f,
+        bd: borders[+(xf.getAttribute('borderId') || 0)] || null,
+        ha: al ? al.getAttribute('horizontal') : null,
+        va: al ? al.getAttribute('vertical') : null,
+        wrap: al ? /1|true/.test(al.getAttribute('wrapText') || '') : false
+      });
+    }
+  }
+
+  // 시트 목록
+  const rel = {};
+  const rx = await z.text('xl/_rels/workbook.xml.rels');
+  if (rx) for (const r of XML(rx).getElementsByTagName('Relationship'))
+    rel[r.getAttribute('Id')] = { t: r.getAttribute('Target').replace(/^\/?(xl\/)?/, ''), ext: r.getAttribute('TargetMode') === 'External' };
+
+  const sheets = [];
+  for (const s of wbx.getElementsByTagName('sheet')){
+    const rid = s.getAttribute('r:id') ||
+      s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const sh = {
+      name: s.getAttribute('name'),
+      path: 'xl/' + ((rel[rid] && rel[rid].t) || 'worksheets/sheet' + s.getAttribute('sheetId') + '.xml'),
+      hidden: (s.getAttribute('state') || '') !== '',
+      styles, loaded: false
+    };
+    sh.load = async () => {
+      if (sh.loaded) return sh;
+      const doc = XML(await z.text(sh.path));
+
+      // 하이퍼링크
+      const links = {};
+      const srx = await z.text(sh.path.replace(/([^/]+)$/, '_rels/$1.rels'));
+      const srel = {};
+      if (srx) for (const r of XML(srx).getElementsByTagName('Relationship'))
+        srel[r.getAttribute('Id')] = r.getAttribute('Target');
+      for (const h of doc.getElementsByTagName('hyperlink')){
+        const rid2 = h.getAttribute('r:id') ||
+          h.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+        const url = srel[rid2];
+        if (url && /^(https?:|mailto:)/i.test(url)) links[h.getAttribute('ref').split(':')[0]] = url;
+      }
+
+      const rows = [];
+      let maxC = 0;
+      for (const r of doc.getElementsByTagName('row')){
+        const ri = +r.getAttribute('r') - 1;
+        const cells = [];
+        let auto = 0;
+        for (const c of r.getElementsByTagName('c')){
+          const ref = c.getAttribute('r') || '';
+          const ci = ref ? colNum(ref) : auto;
+          auto = ci + 1;
+          const t = c.getAttribute('t');
+          const si = +(c.getAttribute('s') || -1);
+          const st = styles[si];
+          let v = '', n = null, red = false;
+
+          if (t === 'inlineStr'){
+            for (const x of c.getElementsByTagName('t')) v += x.textContent;
+          } else {
+            const vn = c.getElementsByTagName('v')[0];
+            const raw = vn ? vn.textContent : '';
+            if (raw === '') v = '';
+            else if (t === 's') v = shared[+raw] ?? '';
+            else if (t === 'b') v = raw === '1' ? 'TRUE' : 'FALSE';
+            else if (t === 'e' || t === 'str') v = raw;
+            else {
+              n = parseFloat(raw);
+              const f = st && st.fmt ? st.fmt(n) : general(n);
+              v = f.text; red = !!f.red;
+            }
+          }
+          if (v !== ''){
+            cells[ci] = { v, n, num: n !== null, s: si, red };
+            if (ci > maxC) maxC = ci;
+          }
+        }
+        if (cells.length) rows[ri] = cells;
+      }
+
+      const merges = [];
+      for (const m of doc.getElementsByTagName('mergeCell')){
+        const [a, b] = m.getAttribute('ref').split(':');
+        merges.push({ r1: rowNum(a), c1: colNum(a), r2: rowNum(b), c2: colNum(b) });
+      }
+
+      const widths = [];
+      for (const co of doc.getElementsByTagName('col')){
+        const w = parseFloat(co.getAttribute('width') || 0);
+        if (co.getAttribute('hidden') === '1') continue;
+        for (let i = +co.getAttribute('min') - 1; i <= +co.getAttribute('max') - 1 && i < 2000; i++)
+          widths[i] = Math.max(36, Math.min(520, Math.round(w * 7.2)));
+      }
+
+      const pane = doc.getElementsByTagName('pane')[0];
+      const freeze = {};
+      if (pane && /frozen/i.test(pane.getAttribute('state') || '')){
+        freeze.x = Math.min(3, +(pane.getAttribute('xSplit') || 0));
+        freeze.y = Math.min(4, +(pane.getAttribute('ySplit') || 0));
+      }
+
+      Object.assign(sh, { rows, maxC, merges, widths, links, freeze, cfCss: [], loaded: true, sortable: !merges.length });
+      try { applyCF(doc, sh, dxfs, theme); } catch(e){ console.warn('조건부 서식 건너뜀', e); }
+      return sh;
+    };
+    sheets.push(sh);
+  }
+  return sheets;
+}
+
+/* ==========================================================================
+   조건부 서식 (conditionalFormatting + dxfs)
+   ========================================================================== */
+function parseSqref(s){
+  const out = [];
+  for (const part of s.trim().split(/\s+/)){
+    const [a, b] = part.split(':');
+    const r1 = rowNum(a), c1 = colNum(a);
+    const r2 = b ? rowNum(b) : r1, c2 = b ? colNum(b) : c1;
+    out.push({ r1: Math.min(r1,r2), r2: Math.max(r1,r2), c1: Math.min(c1,c2), c2: Math.max(c1,c2) });
+  }
+  return out;
+}
+function dxfCss(dxf, theme){
+  const d = [];
+  const fill = dxf.getElementsByTagName('fill')[0];
+  if (fill){
+    const p = fill.getElementsByTagName('patternFill')[0];
+    const c = p && (colorOf(p.getElementsByTagName('bgColor')[0], theme) || colorOf(p.getElementsByTagName('fgColor')[0], theme));
+    if (c) d.push('background:' + c + '!important');
+  }
+  const f = dxf.getElementsByTagName('font')[0];
+  if (f){
+    const c = colorOf(f.getElementsByTagName('color')[0], theme);
+    if (c) d.push('color:' + c + '!important');
+    if (f.getElementsByTagName('b').length) d.push('font-weight:700');
+    if (f.getElementsByTagName('i').length) d.push('font-style:italic');
+  }
+  return d.join(';');
+}
+const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+function mixHex(h1, h2, t){
+  const p = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+  const A = p(h1), B = p(h2);
+  return '#' + [0,1,2].map(i => pad(lerp(A[i], B[i], t).toString(16))).join('');
+}
+function cfvoVal(v, vals, min, max){
+  const t = v.getAttribute('type'), val = v.getAttribute('val');
+  if (t === 'min') return min;
+  if (t === 'max') return max;
+  if (t === 'percent') return min + (max - min) * (parseFloat(val) / 100);
+  if (t === 'percentile'){
+    const s = vals.slice().sort((a,b) => a-b);
+    const i = (parseFloat(val) / 100) * (s.length - 1);
+    return s.length ? s[Math.round(i)] : 0;
+  }
+  return parseFloat(val);
+}
+function applyCF(doc, sh, dxfs, theme){
+  const cfs = doc.getElementsByTagName('conditionalFormatting');
+  if (!cfs.length) return;
+  const css = [], idx = new Map();
+  const clsOf = s => {
+    if (!s) return -1;
+    if (!idx.has(s)){ idx.set(s, css.length); css.push(s); }
+    return idx.get(s);
+  };
+  const put = (r, c, s) => {
+    const cell = (sh.rows[r] || [])[c];
+    if (!cell) return;
+    const i = clsOf(s);
+    if (i >= 0) cell.cf = i;
+  };
+
+  for (const cf of cfs){
+    const ranges = parseSqref(cf.getAttribute('sqref') || '');
+    const rules = [...cf.getElementsByTagName('cfRule')]
+      .sort((a, b) => (+b.getAttribute('priority') || 0) - (+a.getAttribute('priority') || 0));
+
+    const cells = [];
+    for (const r of ranges)
+      for (let i = r.r1; i <= r.r2; i++)
+        for (let c = r.c1; c <= r.c2; c++){
+          const cell = (sh.rows[i] || [])[c];
+          if (cell) cells.push({ r: i, c, cell });
+        }
+    const nums = cells.filter(x => x.cell.num).map(x => x.cell.n);
+    const mn = nums.length ? Math.min(...nums) : 0, mx = nums.length ? Math.max(...nums) : 0;
+
+    for (const rule of rules){
+      const type = rule.getAttribute('type');
+      const dx = rule.getAttribute('dxfId');
+      const style = dx !== null && dxfs[+dx] !== undefined ? dxfs[+dx] : '';
+      const fs = [...rule.getElementsByTagName('formula')].map(f => f.textContent);
+      const op = rule.getAttribute('operator');
+      const txt = (rule.getAttribute('text') || '').toLowerCase();
+
+      if (type === 'colorScale'){
+        const cs = rule.getElementsByTagName('colorScale')[0];
+        const vs = [...cs.getElementsByTagName('cfvo')].map(v => cfvoVal(v, nums, mn, mx));
+        const cols = [...cs.getElementsByTagName('color')].map(c => colorOf(c, theme) || '#ffffff');
+        for (const x of cells){
+          if (!x.cell.num) continue;
+          const v = x.cell.n;
+          let col;
+          if (vs.length >= 3){
+            col = v <= vs[1]
+              ? mixHex(cols[0], cols[1], vs[1] === vs[0] ? 0 : (v - vs[0]) / (vs[1] - vs[0]))
+              : mixHex(cols[1], cols[2], vs[2] === vs[1] ? 0 : (v - vs[1]) / (vs[2] - vs[1]));
+          } else {
+            col = mixHex(cols[0], cols[1], vs[1] === vs[0] ? 0 : (v - vs[0]) / (vs[1] - vs[0]));
+          }
+          put(x.r, x.c, 'background:' + col + '!important;color:#000!important');
+        }
+        continue;
+      }
+      if (type === 'dataBar'){
+        const db = rule.getElementsByTagName('dataBar')[0];
+        const col = colorOf(db.getElementsByTagName('color')[0], theme) || '#638ec6';
+        const lo = Math.min(0, mn), hi = mx;
+        for (const x of cells){
+          if (!x.cell.num) continue;
+          const p = hi === lo ? 0 : Math.max(0, Math.min(1, (x.cell.n - lo) / (hi - lo)));
+          const w = (p * 100).toFixed(1) + '%';
+          put(x.r, x.c, 'background:linear-gradient(90deg,' + col + '99 ' + w + ',transparent ' + w + ')!important');
+        }
+        continue;
+      }
+      if (!style) continue;
+
+      if (type === 'cellIs'){
+        const a = parseFloat(fs[0]), b = parseFloat(fs[1]);
+        const test = v => {
+          if (typeof v !== 'number' || isNaN(a)) return false;
+          switch(op){
+            case 'greaterThan': return v > a;
+            case 'lessThan': return v < a;
+            case 'greaterThanOrEqual': return v >= a;
+            case 'lessThanOrEqual': return v <= a;
+            case 'equal': return v === a;
+            case 'notEqual': return v !== a;
+            case 'between': return v >= Math.min(a,b) && v <= Math.max(a,b);
+            case 'notBetween': return v < Math.min(a,b) || v > Math.max(a,b);
+          }
+          return false;
+        };
+        for (const x of cells) if (x.cell.num && test(x.cell.n)) put(x.r, x.c, style);
+      }
+      else if (type === 'containsText' || type === 'notContainsText' || type === 'beginsWith' || type === 'endsWith'){
+        for (const x of cells){
+          const v = String(x.cell.v).toLowerCase();
+          const ok = type === 'containsText' ? v.includes(txt)
+            : type === 'notContainsText' ? !v.includes(txt)
+            : type === 'beginsWith' ? v.startsWith(txt) : v.endsWith(txt);
+          if (ok) put(x.r, x.c, style);
+        }
+      }
+      else if (type === 'top10'){
+        const n = +(rule.getAttribute('rank') || 10);
+        const bottom = /1|true/.test(rule.getAttribute('bottom') || '');
+        const pct = /1|true/.test(rule.getAttribute('percent') || '');
+        const sorted = nums.slice().sort((a, b) => bottom ? a - b : b - a);
+        const k = pct ? Math.ceil(sorted.length * n / 100) : n;
+        const cut = sorted[Math.min(k, sorted.length) - 1];
+        if (cut !== undefined)
+          for (const x of cells)
+            if (x.cell.num && (bottom ? x.cell.n <= cut : x.cell.n >= cut)) put(x.r, x.c, style);
+      }
+      else if (type === 'aboveAverage'){
+        const avg = nums.reduce((a, b) => a + b, 0) / (nums.length || 1);
+        const below = /1|true/.test(rule.getAttribute('aboveAverage') || 'true') === false;
+        for (const x of cells)
+          if (x.cell.num && (below ? x.cell.n < avg : x.cell.n > avg)) put(x.r, x.c, style);
+      }
+      else if (type === 'duplicateValues' || type === 'uniqueValues'){
+        const cnt = new Map();
+        for (const x of cells) cnt.set(x.cell.v, (cnt.get(x.cell.v) || 0) + 1);
+        for (const x of cells){
+          const dup = cnt.get(x.cell.v) > 1;
+          if (type === 'duplicateValues' ? dup : !dup) put(x.r, x.c, style);
+        }
+      }
+    }
+  }
+  sh.cfCss = css;
+}
+
+/* ==========================================================================
+   .xls (CFB + BIFF8)
+   ========================================================================== */
+function cfbStreams(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  if (dv.getUint32(0, true) !== 0xE011CFD0) throw new Error('CFB 형식 아님');
+  const ssz = 1 << dv.getUint16(30, true);       // sector size
+  const msz = 1 << dv.getUint16(32, true);       // mini sector size
+  const nFat = dv.getUint32(44, true);
+  const dirStart = dv.getUint32(48, true);
+  const miniCut = dv.getUint32(56, true);
+  const miniFatStart = dv.getUint32(60, true);
+  const difStart = dv.getUint32(68, true);
+  const nDif = dv.getUint32(72, true);
+  const off = s => 512 + s * ssz;
+
+  // DIFAT → FAT 섹터 목록
+  const fatSecs = [];
+  for (let i = 0; i < 109 && i < nFat; i++) fatSecs.push(dv.getUint32(76 + i * 4, true));
+  let d = difStart;
+  for (let n = 0; n < nDif && d !== 0xFFFFFFFE && d !== 0xFFFFFFFF; n++){
+    const base = off(d);
+    const cnt = (ssz / 4) - 1;
+    for (let i = 0; i < cnt && fatSecs.length < nFat; i++) fatSecs.push(dv.getUint32(base + i * 4, true));
+    d = dv.getUint32(base + cnt * 4, true);
+  }
+  const FAT = new Uint32Array(fatSecs.length * (ssz / 4));
+  fatSecs.forEach((s, i) => {
+    const b = off(s);
+    for (let j = 0; j < ssz / 4; j++) FAT[i * (ssz / 4) + j] = dv.getUint32(b + j * 4, true);
+  });
+
+  const chain = (start, fat) => {
+    const out = [];
+    let s = start, guard = 0;
+    while (s !== 0xFFFFFFFE && s < fat.length && guard++ < 1e6){ out.push(s); s = fat[s]; }
+    return out;
+  };
+  const readFat = (start, size) => {
+    const secs = chain(start, FAT);
+    const b = new Uint8Array(secs.length * ssz);
+    secs.forEach((s, i) => b.set(u8.subarray(off(s), off(s) + ssz), i * ssz));
+    return size ? b.subarray(0, size) : b;
+  };
+
+  // 디렉터리
+  const dirBuf = readFat(dirStart);
+  const entries = [];
+  for (let p = 0; p + 128 <= dirBuf.length; p += 128){
+    const nl = dirBuf[p + 64] | (dirBuf[p + 65] << 8);
+    if (!nl) continue;
+    let name = '';
+    for (let i = 0; i < nl - 2; i += 2) name += String.fromCharCode(dirBuf[p + i] | (dirBuf[p + i + 1] << 8));
+    const ddv = new DataView(dirBuf.buffer, dirBuf.byteOffset + p, 128);
+    entries.push({ name, type: dirBuf[p + 66], start: ddv.getUint32(116, true), size: ddv.getUint32(120, true) });
+  }
+
+  // 미니 스트림
+  const root = entries.find(e => e.type === 5);
+  const miniStream = root && root.size ? readFat(root.start, root.size) : new Uint8Array(0);
+  const mfBuf = readFat(miniFatStart);
+  const MFAT = new Uint32Array(mfBuf.buffer, mfBuf.byteOffset, Math.floor(mfBuf.length / 4));
+
+  return name => {
+    const e = entries.find(x => x.name === name && x.type === 2);
+    if (!e) return null;
+    if (e.size >= miniCut) return readFat(e.start, e.size);
+    const secs = chain(e.start, MFAT);
+    const b = new Uint8Array(secs.length * msz);
+    secs.forEach((s, i) => b.set(miniStream.subarray(s * msz, s * msz + msz), i * msz));
+    return b.subarray(0, e.size);
+  };
+}
+
+function biffStr(dv, p, wide16){
+  // XLUnicodeString (BIFF8): cch(2B or 1B) + flags(1B) + chars
+  const cch = wide16 ? dv.getUint16(p, true) : dv.getUint8(p);
+  let q = p + (wide16 ? 2 : 1);
+  const flags = dv.getUint8(q++); const hi = flags & 1;
+  let s = '';
+  for (let i = 0; i < cch; i++){
+    s += String.fromCharCode(hi ? dv.getUint16(q + i * 2, true) : dv.getUint8(q + i));
+  }
+  return { s, end: q + cch * (hi ? 2 : 1) };
+}
+function rkNum(v){
+  let d;
+  if (v & 2) d = (v >> 2);
+  else {
+    const b = new DataView(new ArrayBuffer(8));
+    b.setUint32(0, v & 0xFFFFFFFC, false);
+    d = b.getFloat64(0, false);
+  }
+  return (v & 1) ? d / 100 : d;
+}
+
+function parseXls(buf){
+  const get = cfbStreams(buf);
+  const wbBuf = get('Workbook') || get('Book');
+  if (!wbBuf) throw new Error('Workbook 스트림을 찾지 못했습니다.');
+  const dv = new DataView(wbBuf.buffer, wbBuf.byteOffset, wbBuf.length);
+
+  // 레코드 스캔
+  const recs = [];
+  for (let p = 0; p + 4 <= wbBuf.length;){
+    const id = dv.getUint16(p, true), len = dv.getUint16(p + 2, true);
+    recs.push({ id, p: p + 4, len });
+    p += 4 + len;
+  }
+
+  // BIFF 버전 확인
+  const bof = recs.find(r => r.id === 0x0809);
+  if (!bof) throw new Error('BIFF8(.xls 97-2003) 형식이 아닙니다.');
+
+  // SST
+  const sst = [];
+  const si = recs.findIndex(r => r.id === 0x00FC);
+  if (si >= 0){
+    // SST + CONTINUE 를 하나로 병합 (경계에서 flags 재해석 필요 → 직접 순회)
+    let ri = si, p = recs[si].p + 8, end = recs[si].p + recs[si].len;
+    const total = dv.getUint32(recs[si].p + 4, true);
+    const next = () => { // 다음 CONTINUE 로 이동
+      ri++;
+      while (ri < recs.length && recs[ri].id !== 0x003C) return false;
+      return true;
+    };
+    for (let n = 0; n < total; n++){
+      if (p >= end){
+        ri++;
+        if (ri >= recs.length || recs[ri].id !== 0x003C) break;
+        p = recs[ri].p; end = recs[ri].p + recs[ri].len;
+      }
+      const cch = dv.getUint16(p, true); p += 2;
+      let flags = dv.getUint8(p++);
+      let hi = flags & 1, rich = flags & 8, ext = flags & 4;
+      let nRun = 0, cbExt = 0;
+      if (rich){ nRun = dv.getUint16(p, true); p += 2; }
+      if (ext){ cbExt = dv.getUint32(p, true); p += 4; }
+      let s = '', i = 0;
+      while (i < cch){
+        if (p >= end){                       // CONTINUE 경계
+          ri++;
+          if (ri >= recs.length || recs[ri].id !== 0x003C){ i = cch; break; }
+          p = recs[ri].p; end = recs[ri].p + recs[ri].len;
+          hi = dv.getUint8(p++) & 1;         // 경계마다 flags 1바이트 재등장
+        }
+        s += hi ? String.fromCharCode(dv.getUint16(p, true)) : String.fromCharCode(dv.getUint8(p));
+        p += hi ? 2 : 1;
+        i++;
+      }
+      p += nRun * 4 + cbExt;
+      sst.push(s);
+    }
+  }
+
+  // 전역: FORMAT / XF / FONT / DATEMODE
+  const fmtCodes = {};
+  const fonts = [];
+  const xfs = [];
+  let d1904 = false;
+  for (const r of recs){
+    if (r.id === 0x041E){
+      const id = dv.getUint16(r.p, true);
+      fmtCodes[id] = biffStr(dv, r.p + 2, true).s;
+    } else if (r.id === 0x0031){
+      const grbit = dv.getUint16(r.p + 2, true);
+      fonts.push({ b: dv.getUint16(r.p + 6, true) >= 600 || !!(grbit & 1), i: !!(grbit & 2), u: false, st: !!(grbit & 8), color: null, size: dv.getUint16(r.p, true) / 20 });
+    } else if (r.id === 0x00E0){
+      const ifnt = dv.getUint16(r.p, true);
+      const ifmt = dv.getUint16(r.p + 2, true);
+      const al = dv.getUint8(r.p + 6);
+      const HA = ['general','left','center','right','fill','justify','center','distributed'];
+      xfs.push({ ifnt, ifmt, ha: HA[al & 7], wrap: !!(al & 8), va: ['top','middle','bottom','justify'][(al >> 4) & 3] });
+    } else if (r.id === 0x0022){
+      d1904 = dv.getUint16(r.p, true) === 1;
+    }
+  }
+  // FONT 인덱스 보정 (BIFF는 인덱스 4가 없음)
+  const fontAt = i => fonts[i >= 4 ? i - 1 : i] || {};
+  const styles = xfs.map(x => {
+    const code = fmtCodes[x.ifmt] !== undefined ? fmtCodes[x.ifmt] : (BUILTIN[x.ifmt] || 'General');
+    return {
+      fmt: makeFmt(code, d1904), text: code === '@',
+      bg: null, bd: null, font: fontAt(x.ifnt),
+      ha: x.ha === 'general' ? null : x.ha, va: x.va, wrap: x.wrap
+    };
+  });
+
+  // 시트 목록
+  const sheets = [];
+  for (const r of recs){
+    if (r.id !== 0x0085) continue;
+    const pos = dv.getUint32(r.p, true);
+    const hidden = (dv.getUint8(r.p + 4) & 3) !== 0;
+    const name = biffStr(dv, r.p + 6, false).s;
+    sheets.push({ name, pos, hidden, styles, loaded: false });
+  }
+
+  // 각 시트 파싱
+  for (const sh of sheets){
+    sh.load = async () => {
+      if (sh.loaded) return sh;
+      const start = recs.findIndex(r => r.p - 4 === sh.pos);
+      const rows = [], merges = [], widths = [];
+      let maxC = 0;
+      const set = (rw, cl, v, n, xf) => {
+        if (v === '' || v === undefined) return;
+        if (!rows[rw]) rows[rw] = [];
+        rows[rw][cl] = { v, n, num: n !== null, s: xf, red: false };
+        if (cl > maxC) maxC = cl;
+      };
+      const conv = (n, xf) => {
+        const st = styles[xf];
+        const f = st && st.fmt ? st.fmt(n) : general(n);
+        return f;
+      };
+
+      for (let i = start + 1; i < recs.length; i++){
+        const r = recs[i];
+        if (r.id === 0x000A) break;                     // EOF
+        const P = r.p;
+        switch (r.id){
+          case 0x00FD: {                                // LABELSST
+            const rw = dv.getUint16(P, true), cl = dv.getUint16(P + 2, true);
+            set(rw, cl, sst[dv.getUint32(P + 6, true)] || '', null, dv.getUint16(P + 4, true));
+            break;
+          }
+          case 0x0204: {                                // LABEL
+            const rw = dv.getUint16(P, true), cl = dv.getUint16(P + 2, true);
+            set(rw, cl, biffStr(dv, P + 6, true).s, null, dv.getUint16(P + 4, true));
+            break;
+          }
+          case 0x0203: {                                // NUMBER
+            const rw = dv.getUint16(P, true), cl = dv.getUint16(P + 2, true), xf = dv.getUint16(P + 4, true);
+            const n = dv.getFloat64(P + 6, true);
+            const f = conv(n, xf);
+            set(rw, cl, f.text, n, xf);
+            if (f.red && rows[rw][cl]) rows[rw][cl].red = true;
+            break;
+          }
+          case 0x027E: {                                // RK
+            const rw = dv.getUint16(P, true), cl = dv.getUint16(P + 2, true), xf = dv.getUint16(P + 4, true);
+            const n = rkNum(dv.getUint32(P + 6, true));
+            const f = conv(n, xf);
+            set(rw, cl, f.text, n, xf);
+            if (f.red && rows[rw][cl]) rows[rw][cl].red = true;
+            break;
+          }
+          case 0x00BD: {                                // MULRK
+            const rw = dv.getUint16(P, true), c0 = dv.getUint16(P + 2, true);
+            const cnt = (r.len - 6) / 6;
+            for (let k = 0; k < cnt; k++){
+              const xf = dv.getUint16(P + 4 + k * 6, true);
+              const n = rkNum(dv.getUint32(P + 6 + k * 6, true));
+              const f = conv(n, xf);
+              set(rw, c0 + k, f.text, n, xf);
+              if (f.red && rows[rw][c0 + k]) rows[rw][c0 + k].red = true;
+            }
+            break;
+          }
+          case 0x0006: {                                // FORMULA (캐시된 결과)
+            const rw = dv.getUint16(P, true), cl = dv.getUint16(P + 2, true), xf = dv.getUint16(P + 4, true);
+            if (dv.getUint16(P + 12, true) === 0xFFFF){
+              const t = dv.getUint8(P + 6);
+              if (t === 1) set(rw, cl, dv.getUint8(P + 8) ? 'TRUE' : 'FALSE', null, xf);
+              else if (t === 2) set(rw, cl, '#ERR', null, xf);
+              else if (t === 0){                        // 다음 STRING 레코드
+                const nx = recs[i + 1];
+                if (nx && nx.id === 0x0207) set(rw, cl, biffStr(dv, nx.p, true).s, null, xf);
+              }
+            } else {
+              const n = dv.getFloat64(P + 6, true);
+              const f = conv(n, xf);
+              set(rw, cl, f.text, n, xf);
+              if (f.red && rows[rw][cl]) rows[rw][cl].red = true;
+            }
+            break;
+          }
+          case 0x00E5: {                                // MERGECELLS
+            const cnt = dv.getUint16(P, true);
+            for (let k = 0; k < cnt; k++){
+              const b = P + 2 + k * 8;
+              merges.push({
+                r1: dv.getUint16(b, true), r2: dv.getUint16(b + 2, true),
+                c1: dv.getUint16(b + 4, true), c2: dv.getUint16(b + 6, true)
+              });
+            }
+            break;
+          }
+          case 0x007D: {                                // COLINFO
+            const c1 = dv.getUint16(P, true), c2 = dv.getUint16(P + 2, true);
+            const w = dv.getUint16(P + 4, true) / 256;
+            for (let c = c1; c <= c2 && c < 2000; c++) widths[c] = Math.max(36, Math.min(520, Math.round(w * 7.2)));
+            break;
+          }
+        }
+      }
+      Object.assign(sh, {
+        rows, maxC, merges, widths, links: {}, freeze: {},
+        cfCss: [], loaded: true, sortable: !merges.length
+      });
+      return sh;
+    };
+  }
+  return sheets;
+}
+
+/* ---------------- 상태 ---------------- */
+const CHUNK = 2000;
+let FILES = [], FI = 0, SHEETS = [], CUR = null, SHOWN = 0;
+let HITS = [], HI = -1, SORT = null, SEL = null, ANCH = null, DRAG = false;
+
+/* ---------------- 스타일 → CSS 클래스 ---------------- */
+function styleCSS(sh){
+  const used = new Set();
+  for (const row of sh.rows) if (row) for (const c of row) if (c && c.s >= 0) used.add(c.s);
+  const out = [];
+  for (const i of used){
+    const s = sh.styles[i];
+    if (!s) continue;
+    const d = [];
+    if (s.bg) d.push('background:' + s.bg + '!important');
+    if (s.font.color) d.push('color:' + s.font.color);
+    if (s.font.b) d.push('font-weight:700');
+    if (s.font.i) d.push('font-style:italic');
+    if (s.font.u || s.font.st) d.push('text-decoration:' + [s.font.u && 'underline', s.font.st && 'line-through'].filter(Boolean).join(' '));
+    if (s.font.size && s.font.size !== 11) d.push('font-size:' + (s.font.size * 1.18).toFixed(1) + 'px');
+    if (s.ha) d.push('text-align:' + (s.ha === 'general' ? 'left' : s.ha));
+    if (s.va) d.push('vertical-align:' + (s.va === 'center' ? 'middle' : s.va));
+    if (s.wrap) d.push('white-space:pre-wrap');
+    if (s.bd){
+      if (s.bd.t) d.push('border-top:' + s.bd.t);
+      if (s.bd.r) d.push('border-right:' + s.bd.r);
+      if (s.bd.b) d.push('border-bottom:' + s.bd.b);
+      if (s.bd.l) d.push('border-left:' + s.bd.l);
+    }
+    if (d.length) out.push('#grid.fmt td.s' + i + '{' + d.join(';') + '}');
+  }
+  (sh.cfCss || []).forEach((c, i) => out.push('#grid.fmt td.cf' + i + '{' + c + '}'));
+  out.push('#grid.fmt td.red{color:#c00!important}');
+  return out.join('\n');
+}
+
+/* ---------------- 렌더 ---------------- */
+function order(sh){
+  if (!SORT) return sh.rows.map((_, i) => i).filter(i => true);
+  const { c, dir, head } = SORT;
+  const idx = sh.rows.map((_, i) => i);
+  const body = idx.slice(head);
+  body.sort((a, b) => {
+    const x = (sh.rows[a] || [])[c], y = (sh.rows[b] || [])[c];
+    const xv = x ? (x.num ? x.n : x.v) : null, yv = y ? (y.num ? y.n : y.v) : null;
+    if (xv === null && yv === null) return 0;
+    if (xv === null) return 1;
+    if (yv === null) return -1;
+    const r = typeof xv === 'number' && typeof yv === 'number' ? xv - yv : String(xv).localeCompare(String(yv), 'ko');
+    return dir * r;
+  });
+  return idx.slice(0, head).concat(body);
+}
+
+function renderRows(sh, ord, from, to){
+  const cover = new Map(), skip = new Set();
+  for (const m of sh.merges){
+    cover.set(m.r1 + ':' + m.c1, [m.r2 - m.r1 + 1, m.c2 - m.c1 + 1]);
+    for (let r = m.r1; r <= m.r2; r++) for (let c = m.c1; c <= m.c2; c++)
+      if (r !== m.r1 || c !== m.c1) skip.add(r + ':' + c);
+  }
+  const nCol = sh.maxC + 1, fz = sh.freeze || {}, out = [];
+  for (let i = from; i < to; i++){
+    const r = ord[i];
+    out.push('<tr data-i="' + i + '"><th>' + (r + 1) + '</th>');
+    const row = sh.rows[r] || [];
+    for (let c = 0; c < nCol; c++){
+      const k = r + ':' + c;
+      if (skip.has(k)) continue;
+      const sp = cover.get(k), cell = row[c], a = colName(c) + (r + 1);
+      const cls = ['cell'];
+      if (cell){
+        if (cell.num) cls.push('num');
+        if (cell.s >= 0) cls.push('s' + cell.s);
+        if (cell.cf >= 0 && cell.cf !== undefined) cls.push('cf' + cell.cf);
+        if (cell.red) cls.push('red');
+      }
+      if (!SORT && fz.x && c < fz.x) cls.push('fz', 'fzx' + c);
+      let inner = cell ? esc(cell.v) : '';
+      const url = sh.links[a];
+      if (url && inner) inner = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + inner + '</a>';
+      out.push('<td class="' + cls.join(' ') + '" data-r="' + r + '" data-c="' + c + '" data-a="' + a + '"'
+        + (sp ? (sp[0] > 1 ? ' rowspan="' + sp[0] + '"' : '') + (sp[1] > 1 ? ' colspan="' + sp[1] + '"' : '') : '')
+        + '>' + inner + '</td>');
+    }
+    out.push('</tr>');
+  }
+  return out.join('');
+}
+
+function render(sh){
+  const nCol = sh.maxC + 1;
+  const ord = order(sh);
+  sh._ord = ord;
+  SHOWN = Math.min(ord.length, CHUNK);
+
+  const cg = ['<colgroup><col style="width:46px">'];
+  for (let c = 0; c < nCol; c++)
+    cg.push('<col' + (sh.widths[c] ? ' style="width:' + sh.widths[c] + 'px"' : '') + '>');
+  cg.push('</colgroup>');
+
+  const hd = ['<thead><tr><th></th>'];
+  for (let c = 0; c < nCol; c++){
+    const ar = SORT && SORT.c === c ? '<span class="ar">' + (SORT.dir > 0 ? '▲' : '▼') + '</span>' : '';
+    hd.push('<th data-c="' + c + '" title="클릭: 정렬">' + colName(c) + ar + '</th>');
+  }
+  hd.push('</tr></thead>');
+
+  $('grid').innerHTML = '<style id="sty">' + (sh.styles.length || (sh.cfCss || []).length ? styleCSS(sh) : '') + '</style>'
+    + '<table>' + cg.join('') + hd.join('')
+    + '<tbody>' + renderRows(sh, ord, 0, SHOWN) + '</tbody></table>'
+    + (SHOWN < ord.length ? '<button id="more"></button>' : '');
+
+  updMore();
+  freeze(sh);
+  $('cap').textContent = ord.length.toLocaleString() + '행 × ' + nCol + '열';
+  $('q').value = ''; HITS = []; HI = -1; $('qn').textContent = '';
+  SEL = null; ANCH = null; stat();
+  $('grid').scrollTop = 0;
+}
+
+function freeze(sh){
+  const fz = sh.freeze || {};
+  if (SORT || (!fz.x && !fz.y)) return;
+  const tb = $('grid').querySelector('tbody');
+  if (!tb) return;
+  if (fz.y){
+    const hh = $('grid').querySelector('thead th').getBoundingClientRect().height;
+    let top = hh;
+    for (let i = 0; i < Math.min(fz.y, tb.rows.length); i++){
+      const tr = tb.rows[i];
+      for (const cell of tr.cells){
+        cell.classList.add('fz');
+        cell.style.top = top + 'px';
+        cell.style.zIndex = cell.tagName === 'TH' ? 5 : 3;
+        if (!cell.style.background) cell.style.background = 'var(--head)';
+      }
+      top += tr.getBoundingClientRect().height;
+    }
+  }
+  if (fz.x){
+    let left = 46;
+    for (let c = 0; c < fz.x; c++){
+      const w = sh.widths[c] || 90;
+      for (const td of $('grid').querySelectorAll('td.fzx' + c)){
+        td.style.left = left + 'px';
+        if (!td.style.background) td.style.background = 'var(--head)';
+      }
+      left += w;
+    }
+  }
+}
+
+function updMore(){
+  const b = $('more');
+  if (!b) return;
+  const rest = CUR._ord.length - SHOWN;
+  b.textContent = '다음 ' + Math.min(CHUNK, rest).toLocaleString() + '행 표시 (남은 ' + rest.toLocaleString() + '행)';
+  b.onclick = loadMore;
+}
+function loadMore(){
+  const b = $('more');
+  if (!b) return;
+  const to = Math.min(CUR._ord.length, SHOWN + CHUNK);
+  $('grid').querySelector('tbody').insertAdjacentHTML('beforeend', renderRows(CUR, CUR._ord, SHOWN, to));
+  SHOWN = to;
+  if (SHOWN >= CUR._ord.length) b.remove(); else updMore();
+}
+
+/* ---------------- 탭 ---------------- */
+function drawTabs(){
+  const fb = $('files');
+  fb.innerHTML = '';
+  fb.style.display = FILES.length > 1 ? 'flex' : 'none';
+  FILES.forEach((f, i) => {
+    const b = document.createElement('button');
+    b.textContent = f.name;
+    b.className = i === FI ? 'on' : '';
+    b.onclick = () => pickFile(i);
+    fb.appendChild(b);
+  });
+  const tb = $('tabs');
+  tb.innerHTML = '';
+  tb.style.display = SHEETS.length > 1 ? 'flex' : 'none';
+  SHEETS.forEach(sh => {
+    const b = document.createElement('button');
+    b.textContent = sh.name;
+    b.className = (sh === CUR ? 'on ' : '') + (sh.hidden ? 'hid' : '');
+    if (sh.hidden) b.title = '숨김 시트';
+    b.onclick = async () => { SORT = null; CUR = await sh.load(); drawTabs(); render(CUR); };
+    tb.appendChild(b);
+  });
+}
+async function pickFile(i){
+  FI = i;
+  const f = FILES[i];
+  SHEETS = f.sheets;
+  SORT = null;
+  CUR = await (SHEETS.find(s => !s.hidden) || SHEETS[0]).load();
+  $('meta').textContent = f.label;
+  drawTabs(); render(CUR);
+}
+
+/* ---------------- 선택 / 통계 ---------------- */
+function selRange(){
+  if (!SEL) return null;
+  return {
+    r1: Math.min(SEL.r1, SEL.r2), r2: Math.max(SEL.r1, SEL.r2),
+    c1: Math.min(SEL.c1, SEL.c2), c2: Math.max(SEL.c1, SEL.c2)
+  };
+}
+function paint(){
+  $('grid').querySelectorAll('td.rng').forEach(td => td.classList.remove('rng'));
+  const r = selRange();
+  if (!r) return;
+  for (const td of $('grid').querySelectorAll('td.cell')){
+    const rr = +td.dataset.r, cc = +td.dataset.c;
+    if (rr >= r.r1 && rr <= r.r2 && cc >= r.c1 && cc <= r.c2) td.classList.add('rng');
+  }
+}
+function stat(){
+  const r = selRange();
+  if (!r || (r.r1 === r.r2 && r.c1 === r.c2)){ $('stat').textContent = ''; return; }
+  let n = 0, cnt = 0, sum = 0, mn = Infinity, mx = -Infinity;
+  for (let i = r.r1; i <= r.r2; i++){
+    const row = CUR.rows[i] || [];
+    for (let c = r.c1; c <= r.c2; c++){
+      const cell = row[c];
+      if (!cell) continue;
+      cnt++;
+      if (cell.num){ n++; sum += cell.n; mn = Math.min(mn, cell.n); mx = Math.max(mx, cell.n); }
+    }
+  }
+  const fx = v => nf.format(+v.toFixed(6));
+  $('stat').innerHTML = n
+    ? '개수 <b>' + cnt + '</b> · 숫자 <b>' + n + '</b> · 합계 <b>' + fx(sum) + '</b> · 평균 <b>' + fx(sum / n) + '</b> · 최소 <b>' + fx(mn) + '</b> · 최대 <b>' + fx(mx) + '</b>'
+    : '개수 <b>' + cnt + '</b>';
+}
+function showCell(td){
+  $('addr').textContent = td.dataset.a || '—';
+  $('cellval').textContent = td.textContent;
+}
+
+/* ---------------- 열기 ---------------- */
+async function openFiles(list){
+  $('err').hidden = true;
+  for (const file of list){
+    try{
+      const buf = await file.arrayBuffer();
+      const u8 = new Uint8Array(buf);
+      let sheets, note = '';
+      if (u8[0] === 0x50 && u8[1] === 0x4b){
+        sheets = await parseXlsx(buf);
+        if (!sheets.length) throw new Error('시트를 찾지 못했습니다.');
+      } else if (u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0){
+        sheets = parseXls(buf);
+        if (!sheets.length) throw new Error('시트를 찾지 못했습니다.');
+        note = ' · xls(BIFF8)';
+      } else {
+        const { text, enc } = decodeText(buf);
+        const d = sniffDelim(text, file.name);
+        sheets = [sheetFromCSV(file.name.replace(/\.[^.]+$/, ''), parseCSV(text, d))];
+        note = ' · ' + enc + ' · 구분자 ' + (d === '\t' ? 'TAB' : d);
+      }
+      FILES.push({
+        name: file.name, sheets,
+        label: file.name + ' · ' + (file.size / 1024).toFixed(0) + 'KB' + note
+      });
+    } catch(e){
+      $('err').hidden = false;
+      $('err').textContent = file.name + ' — 열기 실패: ' + e.message;
+      console.error(e);
+    }
+  }
+  if (!FILES.length) return;
+  $('drop').style.display = 'none';
+  $('main').style.display = 'flex';
+  ['q','csv','copy','prev','next','fmt'].forEach(id => $(id).disabled = false);
+  await pickFile(FILES.length - 1);
+}
+
+/* ---------------- 검색 ---------------- */
+function search(){
+  const q = $('q').value.trim().toLowerCase();
+  $('grid').querySelectorAll('td.hit, td.cur').forEach(td => td.classList.remove('hit', 'cur'));
+  HITS = []; HI = -1;
+  if (!q){ $('qn').textContent = ''; return; }
+  while ($('more')) loadMore();
+  for (const td of $('grid').querySelectorAll('td.cell'))
+    if (td.textContent.toLowerCase().includes(q)){ td.classList.add('hit'); HITS.push(td); }
+  $('qn').textContent = HITS.length ? '1/' + HITS.length : '0건';
+  if (HITS.length) move(0);
+}
+function move(i){
+  if (!HITS.length) return;
+  if (HI >= 0 && HITS[HI]) HITS[HI].classList.remove('cur');
+  HI = (i + HITS.length) % HITS.length;
+  const td = HITS[HI];
+  td.classList.add('cur');
+  td.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  $('qn').textContent = (HI + 1) + '/' + HITS.length;
+  showCell(td);
+}
+
+/* ---------------- 내보내기 ---------------- */
+function grid2d(sh, r){
+  const res = [];
+  const R1 = r ? r.r1 : 0, R2 = r ? r.r2 : sh.rows.length - 1;
+  const C1 = r ? r.c1 : 0, C2 = r ? r.c2 : sh.maxC;
+  const ord = sh._ord || sh.rows.map((_, i) => i);
+  for (let i = 0; i < ord.length; i++){
+    const ri = ord[i];
+    if (r && (ri < R1 || ri > R2)) continue;
+    const row = sh.rows[ri] || [], line = [];
+    for (let c = C1; c <= C2; c++) line.push(row[c] ? row[c].v : '');
+    res.push(line);
+  }
+  return res;
+}
+
+/* ---------------- 바인딩 ---------------- */
+$('file').onchange = e => e.target.files.length && openFiles([...e.target.files]);
+['dragenter','dragover'].forEach(ev => document.body.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('hot'); }));
+['dragleave','drop'].forEach(ev => document.body.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('hot'); }));
+document.body.addEventListener('drop', e => { if (e.dataTransfer.files.length) openFiles([...e.dataTransfer.files]); });
+
+const grid = $('grid');
+grid.addEventListener('mousedown', e => {
+  const th = e.target.closest('thead th[data-c]');
+  if (th && !e.target.classList.contains('rz')){
+    const c = +th.dataset.c;
+    if (!CUR.sortable){ $('cellval').textContent = '병합 셀이 있는 시트는 정렬할 수 없습니다'; return; }
+    SORT = !SORT || SORT.c !== c ? { c, dir: 1, head: 1 }
+      : SORT.dir === 1 ? { c, dir: -1, head: 1 } : null;
+    render(CUR);
+    return;
+  }
+  const td = e.target.closest('td.cell');
+  if (!td) return;
+  DRAG = true;
+  ANCH = { r: +td.dataset.r, c: +td.dataset.c };
+  SEL = { r1: ANCH.r, c1: ANCH.c, r2: ANCH.r, c2: ANCH.c };
+  grid.querySelectorAll('td.cur').forEach(x => x.classList.remove('cur'));
+  td.classList.add('cur');
+  showCell(td); paint(); stat();
+});
+grid.addEventListener('mouseover', e => {
+  if (!DRAG) return;
+  const td = e.target.closest('td.cell');
+  if (!td || !ANCH) return;
+  SEL = { r1: ANCH.r, c1: ANCH.c, r2: +td.dataset.r, c2: +td.dataset.c };
+  paint(); stat();
+});
+document.addEventListener('mouseup', () => DRAG = false);
+
+// 무한 스크롤
+grid.addEventListener('scroll', () => {
+  if ($('more') && grid.scrollTop + grid.clientHeight > grid.scrollHeight - 400) loadMore();
+});
+
+// 열 너비 드래그
+let RZ = null;
+grid.addEventListener('mousemove', e => {
+  const th = e.target.closest('thead th[data-c]');
+  if (th) th.classList.toggle('res', e.offsetX > th.offsetWidth - 6);
+});
+grid.addEventListener('mousedown', e => {
+  const th = e.target.closest('thead th[data-c]');
+  if (th && e.offsetX > th.offsetWidth - 6){
+    e.preventDefault();
+    RZ = { c: +th.dataset.c, x: e.clientX, w: th.offsetWidth };
+  }
+}, true);
+document.addEventListener('mousemove', e => {
+  if (!RZ) return;
+  const w = Math.max(36, RZ.w + e.clientX - RZ.x);
+  const col = grid.querySelectorAll('colgroup col')[RZ.c + 1];
+  if (col) col.style.width = w + 'px';
+  CUR.widths[RZ.c] = w;
+});
+document.addEventListener('mouseup', () => { if (RZ){ RZ = null; freeze(CUR); } });
+
+// 키보드
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f'){ e.preventDefault(); $('q').focus(); $('q').select(); return; }
+  if (e.target.tagName === 'INPUT') return;
+  if (!ANCH || !CUR) return;
+  const map = { ArrowUp:[-1,0], ArrowDown:[1,0], ArrowLeft:[0,-1], ArrowRight:[0,1] };
+  const d = map[e.key];
+  if (!d) return;
+  e.preventDefault();
+  const r = Math.max(0, Math.min(CUR.rows.length - 1, ANCH.r + d[0]));
+  const c = Math.max(0, Math.min(CUR.maxC, ANCH.c + d[1]));
+  ANCH = { r, c };
+  SEL = e.shiftKey && SEL ? { ...SEL, r2: r, c2: c } : { r1: r, c1: c, r2: r, c2: c };
+  const td = grid.querySelector('td[data-r="' + r + '"][data-c="' + c + '"]');
+  if (td){
+    grid.querySelectorAll('td.cur').forEach(x => x.classList.remove('cur'));
+    td.classList.add('cur');
+    td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    showCell(td);
+  }
+  paint(); stat();
+});
+
+let t = 0;
+$('q').oninput = () => { clearTimeout(t); t = setTimeout(search, 200); };
+$('q').onkeydown = e => {
+  if (e.key === 'Enter'){ e.preventDefault(); HITS.length ? move(HI + (e.shiftKey ? -1 : 1)) : search(); }
+  if (e.key === 'Escape'){ $('q').value = ''; search(); }
+};
+$('next').onclick = () => move(HI + 1);
+$('prev').onclick = () => move(HI - 1);
+
+$('csv').onclick = () => {
+  const csv = grid2d(CUR).map(r => r.map(v =>
+    /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv' }));
+  a.download = CUR.name + '.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$('copy').onclick = async () => {
+  const r = selRange();
+  const tsv = grid2d(CUR, r && (r.r1 !== r.r2 || r.c1 !== r.c2) ? r : null)
+    .map(x => x.join('\t')).join('\n');
+  const b = $('copy');
+  try { await navigator.clipboard.writeText(tsv); b.textContent = '복사됨'; }
+  catch {
+    const ta = document.createElement('textarea');
+    ta.value = tsv; document.body.appendChild(ta); ta.select();
+    b.textContent = document.execCommand('copy') ? '복사됨' : '복사 실패';
+    ta.remove();
+  }
+  setTimeout(() => b.textContent = '복사', 1200);
+};
+
+$('fmt').onclick = () => {
+  const on = grid.classList.toggle('fmt');
+  $('fmt').classList.toggle('on', on);
+  $('fmt').textContent = on ? '기본 보기' : '원본 서식';
+};
+
+const root = document.documentElement;
+const setTheme = m => { root.dataset.theme = m; $('theme').textContent = m === 'dark' ? '라이트' : '다크'; };
+setTheme(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+$('theme').onclick = () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
+
+/* ---------------- 자동 열기 (런처가 심은 파일 / ?src=) ---------------- */
+window.addEventListener('DOMContentLoaded', function(){
+  const b2u = b64 => {
+    const bin = atob(b64.replace(/\s+/g, '')), u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  };
+  const el = document.getElementById('embed');
+  let raw = el ? el.textContent.trim() : '';
+  if (raw && raw !== '"__PAYLOAD__"'){
+    try{
+      let name = window.__NAME__ || '첨부파일.xlsx', b64 = raw;
+      if (raw[0] === '{'){ const d = JSON.parse(raw); name = d.name || name; b64 = d.b64; }
+      else if (raw[0] === '"'){ b64 = JSON.parse(raw); }
+      document.title = name + ' — 표 뷰어';
+      openFiles([new File([b2u(b64)], name)]);
+      return;
+    } catch(e){
+      $('err').hidden = false;
+      $('err').textContent = '파일 복원 실패: ' + e.message;
+      console.error(e);
+    }
+  }
+  const src = new URLSearchParams(location.search).get('src');
+  if (src){
+    fetch(src).then(r => r.blob())
+      .then(b => openFiles([new File([b], decodeURIComponent(src.split(/[\\/]/).pop()))]))
+      .catch(() => {
+        $('err').hidden = false;
+        $('err').textContent = '브라우저 보안정책상 로컬 파일 직접 읽기는 차단됩니다. 파일을 창에 끌어다 놓거나 런처를 사용하세요.';
+      });
+  }
+});
+
+
+/* ---------------- 오프라인 캐시 (PWA) ---------------- */
+if ('serviceWorker' in navigator && location.protocol === 'https:'){
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+
+<script id="embed" type="application/json">"__PAYLOAD__"</script>
+</body>
+</html>
