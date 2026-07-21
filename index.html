@@ -61,10 +61,20 @@
   #grid{flex:1;overflow:auto;background:var(--bg);position:relative;outline:none!important}
   table{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
   th,td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
-    padding:3px 8px;overflow:hidden;text-overflow:ellipsis;white-space:pre;vertical-align:middle;max-width:520px}
+    padding:3px 8px;overflow:hidden;text-overflow:ellipsis;white-space:pre;vertical-align:middle}
   thead th{position:sticky;top:0;z-index:5;background:var(--head);color:var(--dim);
     font-weight:600;text-align:center;font-size:11px;cursor:pointer;user-select:none}
-  thead th.res{cursor:col-resize}
+  thead th{position:relative}
+  thead th .rz{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:7}
+  thead th .rz:hover{background:var(--accent);opacity:.55}
+  #grid.wrap td{white-space:pre-wrap;word-break:break-word;vertical-align:top}
+  #grid.wrap tbody th{vertical-align:top}
+  #pop{position:fixed;z-index:50;max-width:min(680px,86vw);max-height:52vh;overflow:auto;
+    background:var(--panel);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;
+    box-shadow:0 8px 28px #0006;white-space:pre-wrap;word-break:break-word;font-size:12.5px;
+    color:var(--txt);display:none;user-select:text}
+  #pop b{display:block;color:var(--accent);font-size:11px;margin-bottom:6px;font-weight:700}
+  #pop .cp{position:sticky;bottom:-10px;float:right;margin-top:8px}
   thead th .ar{color:var(--accent);font-size:9px}
   tbody th{position:sticky;left:0;z-index:4;background:var(--head);color:var(--dim);
     font-weight:400;text-align:right;font-size:11px;min-width:46px}
@@ -118,6 +128,8 @@
   </div>
   <div class="sp"></div>
   <span class="meta" id="meta"></span>
+  <button id="wrap" disabled title="긴 텍스트 줄바꿈 (Alt+W)">줄바꿈</button>
+  <button id="fit" disabled title="열 너비를 내용에 맞춤 (Alt+F)">너비 맞춤</button>
   <button id="hide" disabled title="선택 영역의 행/열 숨기기">숨기기</button>
   <button id="unhide" disabled title="모든 숨김 해제">숨김 해제</button>
   <button id="fmt" disabled title="엑셀 원본 색·서식으로 보기">원본 서식</button>
@@ -142,14 +154,16 @@
   <div id="grid" tabindex="0"></div>
 </div>
 
+<div id="pop"></div>
+
 <div id="err" hidden></div>
 
 <footer>
   <span id="addr">—</span>
-  <span id="cellval">셀 클릭 = 전체 값 · 드래그 = 합계·평균 · 헤더 우클릭 = 숨기기</span>
+  <span id="cellval">셀 더블클릭 = 전체 보기 · 헤더 경계 드래그 = 너비 · 더블클릭 = 자동 맞춤</span>
   <span id="stat"></span>
   <span id="cap" style="flex:0 0 auto"></span>
-  <span id="ver" style="opacity:.6;flex:0 0 auto">v5.4</span>
+  <span id="ver" style="opacity:.6;flex:0 0 auto">v5.8</span>
 </footer>
 
 <script>
@@ -304,10 +318,19 @@ const $ = id => document.getElementById(id);
 const XML = s => new DOMParser().parseFromString(s, 'application/xml');
 const colNum = r => { let c = 0; for (const ch of r){ if (ch < 'A' || ch > 'Z') break; c = c * 26 + ch.charCodeAt(0) - 64; } return c - 1; };
 const rowNum = r => parseInt(r.replace(/^[A-Z]+/, ''), 10) - 1;
-const colName = i => { let s = ''; i++; while (i > 0){ const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = (i - 1 - m) / 26; } return s; };
+const _cn = [];
+const colName = i => {
+  let v = _cn[i];
+  if (v !== undefined) return v;
+  let s = '', k = i + 1;
+  while (k > 0){ const m = (k - 1) % 26; s = String.fromCharCode(65 + m) + s; k = (k - 1 - m) / 26; }
+  return (_cn[i] = s);
+};
+const addrOf = td => colName(+td.dataset.c) + (+td.dataset.r + 1);
 const esc = s => s.replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const pad = n => String(n).padStart(2, '0');
 const nf = new Intl.NumberFormat('en-US', { maximumFractionDigits: 20 });
+const COLL = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 
 /* ---------------- 색상 (theme / indexed / tint) ---------------- */
 const INDEXED = ['000000','FFFFFF','FF0000','00FF00','0000FF','FFFF00','FF00FF','00FFFF','000000','FFFFFF','FF0000','00FF00','0000FF','FFFF00','FF00FF','00FFFF','800000','008000','000080','808000','800080','008080','C0C0C0','808080','9999FF','993366','FFFFCC','CCFFFF','660066','FF8080','0066CC','CCCCFF','000080','FF00FF','FFFF00','00FFFF','800080','800000','008080','0000FF','00CCFF','CCFFFF','CCFFCC','FFFF99','99CCFF','FF99CC','CC99FF','FFCC99','3366FF','33CCCC','99CC00','FFCC00','FF9900','FF6600','666699','969696','003366','339966','003300','333300','993300','993366','333399','333333'];
@@ -524,6 +547,102 @@ function sheetFromCSV(name, rows){
   return sh;
 }
 
+
+/* ---------------- 고속 시트 스캐너 (DOM 생성 없이 XML 직접 파싱) ---------------- */
+const ENT = { amp:'&', lt:'<', gt:'>', quot:'"', apos:"'" };
+function unent(t){
+  if (t.indexOf('&') < 0) return t;
+  return t.replace(/&(#x?[0-9A-Fa-f]+|amp|lt|gt|quot|apos);/g, (m, g) => {
+    if (g[0] === '#') return String.fromCodePoint(g[1] === 'x' || g[1] === 'X' ? parseInt(g.slice(2), 16) : parseInt(g.slice(1), 10));
+    return ENT[g] !== undefined ? ENT[g] : m;
+  });
+}
+function attr(tag, name){
+  const k = name + '="';
+  let i = tag.indexOf(k);
+  if (i < 0) return null;
+  // 값이 아닌 다른 속성의 접미사와 겹치지 않도록 앞 문자 검사
+  while (i > 0 && tag[i - 1] !== ' ' && tag[i - 1] !== '<'){
+    i = tag.indexOf(k, i + 1);
+    if (i < 0) return null;
+  }
+  const st = i + k.length, e = tag.indexOf('"', st);
+  return e < 0 ? null : tag.slice(st, e);
+}
+function scanSheet(xml, styles, shared, cb){
+  const sdS = xml.indexOf('<sheetData');
+  if (sdS < 0) return;
+  const sdE = xml.indexOf('</sheetData>', sdS);
+  const end = sdE < 0 ? xml.length : sdE;
+  let p = xml.indexOf('>', sdS) + 1;
+  let ri = -1, auto = 0;
+
+  while (p < end){
+    const lt = xml.indexOf('<', p);
+    if (lt < 0 || lt >= end) break;
+    const ch = xml.charCodeAt(lt + 1);
+
+    if (ch === 114 && xml.charCodeAt(lt + 2) === 111){          // <row
+      const gt = xml.indexOf('>', lt);
+      const tag = xml.slice(lt, gt);
+      const rv = attr(tag, 'r');
+      ri = rv ? (rv | 0) - 1 : ri + 1;
+      auto = 0;
+      cb.row(ri, attr(tag, 'hidden'));
+      p = gt + 1;
+      continue;
+    }
+    if (ch === 99 && (xml.charCodeAt(lt + 2) === 32 || xml.charCodeAt(lt + 2) === 62 || xml.charCodeAt(lt + 2) === 47)){  // <c
+      const gt = xml.indexOf('>', lt);
+      const tag = xml.slice(lt, gt);
+      const selfClose = xml.charCodeAt(gt - 1) === 47;
+      const ref = attr(tag, 'r');
+      const ci = ref ? colNum(ref) : auto;
+      auto = ci + 1;
+      if (selfClose){ p = gt + 1; continue; }
+
+      const cEnd = xml.indexOf('</c>', gt);
+      const body = xml.slice(gt + 1, cEnd < 0 ? end : cEnd);
+      const t = attr(tag, 't');
+      const sA = attr(tag, 's');
+      cb.cell(ri, ci, t, sA === null ? -1 : (sA | 0), body);
+      p = (cEnd < 0 ? end : cEnd + 4);
+      continue;
+    }
+    p = lt + 1;
+  }
+}
+function tagText(body, name){
+  const o = '<' + name;
+  let i = body.indexOf(o);
+  while (i >= 0){
+    const c = body.charCodeAt(i + o.length);
+    if (c === 62 || c === 32 || c === 47) break;
+    i = body.indexOf(o, i + 1);
+  }
+  if (i < 0) return null;
+  const gt = body.indexOf('>', i);
+  if (body.charCodeAt(gt - 1) === 47) return '';
+  const e = body.indexOf('</' + name + '>', gt);
+  return unent(body.slice(gt + 1, e < 0 ? body.length : e));
+}
+function allText(body, name){
+  let out = '', i = 0;
+  const o = '<' + name;
+  for(;;){
+    let k = body.indexOf(o, i);
+    if (k < 0) break;
+    const c = body.charCodeAt(k + o.length);
+    if (c !== 62 && c !== 32 && c !== 47){ i = k + 1; continue; }
+    const gt = body.indexOf('>', k);
+    if (body.charCodeAt(gt - 1) === 47){ i = gt + 1; continue; }
+    const e = body.indexOf('</' + name + '>', gt);
+    out += unent(body.slice(gt + 1, e < 0 ? body.length : e));
+    i = e < 0 ? body.length : e + name.length + 3;
+  }
+  return out;
+}
+
 /* ---------------- XLSX ---------------- */
 async function parseXlsx(buf){
   const z = await unzip(buf);
@@ -543,10 +662,18 @@ async function parseXlsx(buf){
   // 공유 문자열
   const shared = [];
   const ss = await z.text('xl/sharedStrings.xml');
-  if (ss) for (const si of XML(ss).getElementsByTagName('si')){
-    let t = '';
-    for (const n of si.getElementsByTagName('t')) t += n.textContent;
-    shared.push(t);
+  if (ss){
+    let p2 = ss.indexOf('<si');
+    while (p2 >= 0){
+      const e = ss.indexOf('</si>', p2);
+      const body = ss.slice(p2, e < 0 ? ss.length : e);
+      // 리치텍스트는 <t> 조각이 여러 개 → 모두 이어붙임
+      const one = body.indexOf('<t', body.indexOf('>'));
+      shared.push(body.indexOf('</t>') === body.lastIndexOf('</t>') && one >= 0
+        ? (tagText(body, 't') ?? '') : allText(body, 't'));
+      if (e < 0) break;
+      p2 = ss.indexOf('<si', e);
+    }
   }
 
   const wbx = XML(await z.text('xl/workbook.xml'));
@@ -559,7 +686,7 @@ async function parseXlsx(buf){
   if (stx){
     const sd = XML(stx);
     const dx = sd.getElementsByTagName('dxfs')[0];
-    if (dx) for (const d of dx.children) dxfs.push(dxfCss(d, theme));
+    if (dx && dx.children.length) for (const d of dx.children) dxfs.push(dxfCss(d, theme));
     const codes = {};
     for (const n of sd.getElementsByTagName('numFmt')) codes[n.getAttribute('numFmtId')] = n.getAttribute('formatCode') || '';
 
@@ -623,7 +750,13 @@ async function parseXlsx(buf){
     };
     sh.load = async () => {
       if (sh.loaded) return sh;
-      const doc = XML(await z.text(sh.path));
+      const xml = await z.text(sh.path);
+      // 대용량 sheetData 는 DOM 을 만들지 않고 스캐너로 처리
+      const _s = xml.indexOf('<sheetData'), _e = xml.indexOf('</sheetData>');
+      const meta = (_s >= 0 && _e > _s)
+        ? xml.slice(0, _s) + xml.slice(_e + 12)
+        : xml;
+      const doc = XML(meta);
 
       // 하이퍼링크
       const links = {};
@@ -639,41 +772,48 @@ async function parseXlsx(buf){
       }
 
       const rows = [];
-      let maxC = 0;
-      for (const r of doc.getElementsByTagName('row')){
-        const ri = +r.getAttribute('r') - 1;
-        const cells = [];
-        let auto = 0;
-        for (const c of r.getElementsByTagName('c')){
-          const ref = c.getAttribute('r') || '';
-          const ci = ref ? colNum(ref) : auto;
-          auto = ci + 1;
-          const t = c.getAttribute('t');
-          const si = +(c.getAttribute('s') || -1);
+      const used = new Set();
+      const hideR0 = new Set();
+      let maxC = 0, cells = null;
+
+      scanSheet(xml, styles, shared, {
+        row(ri, hidden){
+          cells = rows[ri] = rows[ri] || [];
+          if (hidden === '1' || hidden === 'true') hideR0.add(ri);
+        },
+        cell(ri, ci, t, si, body){
+          if (!cells) cells = rows[ri] = rows[ri] || [];
           const st = styles[si];
           let v = '', n = null, red = false;
 
           if (t === 'inlineStr'){
-            for (const x of c.getElementsByTagName('t')) v += x.textContent;
+            v = allText(body, 't');
           } else {
-            const vn = c.getElementsByTagName('v')[0];
-            const raw = vn ? vn.textContent : '';
-            if (raw === '') v = '';
-            else if (t === 's') v = shared[+raw] ?? '';
+            const raw = tagText(body, 'v');
+            if (raw === null || raw === '') v = '';
+            else if (t === 's') v = shared[raw | 0] ?? '';
             else if (t === 'b') v = raw === '1' ? 'TRUE' : 'FALSE';
-            else if (t === 'e' || t === 'str') v = raw;
+            else if (t === 'e' || t === 'str') v = unent(raw);
             else {
-              n = parseFloat(raw);
-              const f = st && st.fmt ? st.fmt(n) : general(n);
-              v = f.text; red = !!f.red;
+              n = +raw;
+              if (n !== n){ v = unent(raw); n = null; }
+              else {
+                const f = st && st.fmt ? st.fmt(n) : general(n);
+                v = f.text; red = !!f.red;
+              }
             }
           }
           if (v !== ''){
             cells[ci] = { v, n, num: n !== null, s: si, red };
+            if (si >= 0) used.add(si);
             if (ci > maxC) maxC = ci;
           }
         }
-        if (cells.length) rows[ri] = cells;
+      });
+      // 값이 하나도 없는 행 객체 제거 (희소 배열 유지)
+      for (let i = 0; i < rows.length; i++){
+        const rw = rows[i];
+        if (rw && !rw.length) delete rows[i];
       }
 
       const merges = [];
@@ -690,8 +830,7 @@ async function parseXlsx(buf){
           if (hid) hideC.add(i); else widths[i] = Math.max(36, Math.min(520, Math.round(w * 7.2)));
         }
       }
-      for (const r of doc.getElementsByTagName('row'))
-        if (/1|true/.test(r.getAttribute('hidden') || '')) hideR.add(+r.getAttribute('r') - 1);
+      for (const r of hideR0) hideR.add(r);
 
       const pane = doc.getElementsByTagName('pane')[0];
       const freeze = {};
@@ -700,8 +839,10 @@ async function parseXlsx(buf){
         freeze.y = Math.min(4, +(pane.getAttribute('ySplit') || 0));
       }
 
-      Object.assign(sh, { rows, maxC, merges, widths, links, freeze, hideC, hideR, cfCss: [], loaded: true, sortable: !merges.length });
-      try { applyCF(doc, sh, dxfs, theme); } catch(e){ console.warn('조건부 서식 건너뜀', e); }
+      Object.assign(sh, { rows, maxC, merges, widths, links, freeze, hideC, hideR, used, cfCss: [], loaded: true, sortable: !merges.length });
+      if (dxfs.length || meta.indexOf('<conditionalFormatting') >= 0){
+        try { applyCF(doc, sh, dxfs, theme); } catch(e){ console.warn('조건부 서식 건너뜀', e); }
+      }
       return sh;
     };
     sheets.push(sh);
@@ -1211,8 +1352,8 @@ let HITS = [], HI = -1, SORT = null, SEL = null, ANCH = null, DRAG = false;
 
 /* ---------------- 스타일 → CSS 클래스 ---------------- */
 function styleCSS(sh){
-  const used = new Set();
-  for (const row of sh.rows) if (row) for (const c of row) if (c && c.s >= 0) used.add(c.s);
+  if (sh._css !== undefined) return sh._css;
+  const used = sh.used || new Set();
   const out = [];
   for (const i of used){
     const s = sh.styles[i];
@@ -1237,7 +1378,7 @@ function styleCSS(sh){
   }
   (sh.cfCss || []).forEach((c, i) => out.push('#grid.fmt td.cf' + i + '{' + c + '}'));
   out.push('#grid.fmt td.red{color:#c00!important}');
-  return out.join('\n');
+  return (sh._css = out.join('\n'));
 }
 
 /* ---------------- 렌더 ---------------- */
@@ -1249,6 +1390,26 @@ function hasHeader(sh){
   for (let i = 1; i < Math.min(6, sh.rows.length); i++)
     if ((sh.rows[i] || []).some(c => c && c.num)) return true;
   return false;
+}
+function ensureWidths(sh){
+  if (sh._wOK) return;
+  const nCol = sh.maxC + 1;
+  const N = Math.min(sh.rows.length, 400);          // 상위 400행 표본
+  for (let c = 0; c < nCol; c++){
+    if (sh.widths[c]) continue;
+    let w = 3;                                       // 헤더(A, AB) 최소치
+    for (let r = 0; r < N; r++){
+      const cell = (sh.rows[r] || [])[c];
+      if (!cell) continue;
+      const t = cell.v;
+      let n = 0;
+      for (let i = 0; i < t.length; i++) n += t.charCodeAt(i) > 0x2000 ? 1.85 : 1;
+      if (n > w) w = n;
+      if (w > 46) break;
+    }
+    sh.widths[c] = Math.max(48, Math.min(300, Math.round(w * 7.4) + 18));
+  }
+  sh._wOK = true;
 }
 function seq(n){ const a = new Array(n); for (let i = 0; i < n; i++) a[i] = i; return a; }
 function order(sh){
@@ -1262,13 +1423,13 @@ function order(sh){
     if (xv === null && yv === null) return 0;
     if (xv === null) return 1;
     if (yv === null) return -1;
-    const r = typeof xv === 'number' && typeof yv === 'number' ? xv - yv : String(xv).localeCompare(String(yv), 'ko');
+    const r = typeof xv === 'number' && typeof yv === 'number' ? xv - yv : COLL.compare(String(xv), String(yv));
     return dir * r;
   });
   return idx.slice(0, head).concat(body);
 }
 
-function renderRows(sh, ord, from, to){
+function buildMerge(sh){
   const cover = new Map(), skip = new Set();
   for (const m of sh.merges){
     const cs = [], rws = [];
@@ -1279,32 +1440,45 @@ function renderRows(sh, ord, from, to){
     cover.set(ar + ':' + ac, { rs: rws.length, cs: cs.length, sr: m.r1, sc: m.c1 });
     for (const r of rws) for (const c of cs) if (r !== ar || c !== ac) skip.add(r + ':' + c);
   }
+  sh._mg = { cover, skip, on: cover.size > 0 };
+}
+function renderRows(sh, ord, from, to){
+  const { cover, skip, on } = sh._mg;
   const cols = sh._cols, fz = sh.freeze || {}, out = [];
+  const hasLink = sh.links && Object.keys(sh.links).length > 0;
+  const hideR = sh.hideR, rows = sh.rows;
+  const fzx = (!SORT && fz.x) ? fz.x : 0;
   for (let i = from; i < to; i++){
     const r = ord[i];
-    if (sh.hideR.has(r)) continue;
-    out.push('<tr data-i="' + i + '" data-r="' + r + '"><th data-hr="' + r + '">' + (r + 1) + '</th>');
-    for (const c of cols){
-      const k = r + ':' + c;
-      if (skip.has(k)) continue;
-      const sp = cover.get(k);
-      const cell = sp ? (sh.rows[sp.sr] || [])[sp.sc] : (sh.rows[r] || [])[c];
-      const a = colName(c) + (r + 1);
-      const cls = ['cell'];
-      if (cell){
-        if (cell.num) cls.push('num');
-        if (cell.s >= 0) cls.push('s' + cell.s);
-        if (cell.cf >= 0 && cell.cf !== undefined) cls.push('cf' + cell.cf);
-        if (cell.red) cls.push('red');
+    if (hideR.has(r)) continue;
+    const row = rows[r];
+    out.push('<tr data-i="', i, '" data-r="', r, '"><th data-hr="', r, '">', r + 1, '</th>');
+    for (let j = 0; j < cols.length; j++){
+      const c = cols[j];
+      let sp = null;
+      if (on){
+        const k = r + ':' + c;
+        if (skip.has(k)) continue;
+        sp = cover.get(k);
       }
-      if (!SORT && fz.x && c < fz.x) cls.push('fz', 'fzx' + c);
+      const cell = sp ? (rows[sp.sr] || [])[sp.sc] : (row ? row[c] : undefined);
+      let cls = 'cell';
+      if (cell){
+        if (cell.num) cls += ' num';
+        if (cell.s >= 0) cls += ' s' + cell.s;
+        if (cell.cf !== undefined) cls += ' cf' + cell.cf;
+        if (cell.red) cls += ' red';
+      }
+      if (c < fzx) cls += ' fz fzx' + c;
       let inner = cell ? esc(cell.v) : '';
-      const url = sh.links[a];
-      if (url && inner) inner = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + inner + '</a>';
-      out.push('<td class="' + cls.join(' ') + '" data-r="' + r + '" data-c="' + c + '" data-a="' + a + '"'
-        + (sp && sp.rs > 1 ? ' rowspan="' + sp.rs + '"' : '')
-        + (sp && sp.cs > 1 ? ' colspan="' + sp.cs + '"' : '')
-        + '>' + inner + '</td>');
+      if (hasLink && inner){
+        const url = sh.links[colName(c) + (r + 1)];
+        if (url) inner = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + inner + '</a>';
+      }
+      out.push('<td class="', cls, '" data-r="', r, '" data-c="', c, '"',
+        sp && sp.rs > 1 ? ' rowspan="' + sp.rs + '"' : '',
+        sp && sp.cs > 1 ? ' colspan="' + sp.cs + '"' : '',
+        '>', inner, '</td>');
     }
     out.push('</tr>');
   }
@@ -1313,18 +1487,24 @@ function renderRows(sh, ord, from, to){
 
 function render(sh){
   const nCol = sh.maxC + 1;
+  ensureWidths(sh);
   const cols = [];
   for (let c = 0; c < nCol; c++) if (!sh.hideC.has(c)) cols.push(c);
   sh._cols = cols;
 
+  buildMerge(sh);
   const ord = order(sh);
   sh._ord = ord;
   sh._vis = ord.filter(r => !sh.hideR.has(r));
   SHOWN = Math.min(ord.length, CHUNK);
 
+  let total = 46;
   const cg = ['<colgroup><col style="width:46px">'];
-  for (const c of cols)
-    cg.push('<col' + (sh.widths[c] ? ' style="width:' + sh.widths[c] + 'px"' : '') + '>');
+  for (const c of cols){
+    const w = sh.widths[c];
+    total += w;
+    cg.push('<col style="width:' + w + 'px">');
+  }
   cg.push('</colgroup>');
 
   const gap = new Set();
@@ -1334,13 +1514,14 @@ function render(sh){
   for (const c of cols){
     const ar = SORT && SORT.c === c ? '<span class="ar">' + (SORT.dir > 0 ? '▲' : '▼') + '</span>' : '';
     hd.push('<th data-c="' + c + '"' + (gap.has(c) ? ' style="border-left:2px solid var(--accent)"' : '')
-      + ' title="클릭: 정렬 · 우클릭: 숨기기">' + colName(c) + ar + '</th>');
+      + ' title="클릭: 정렬 · 우클릭: 숨기기">' + colName(c) + ar
+      + '<span class="rz" data-rz="' + c + '"></span></th>');
   }
   hd.push('</tr></thead>');
 
   $('grid').innerHTML = '<style id="hid"></style><style id="fzs"></style><style id="sty">'
     + (sh.styles.length || (sh.cfCss || []).length ? styleCSS(sh) : '') + '</style>'
-    + '<table>' + cg.join('') + hd.join('')
+    + '<table style="table-layout:fixed;width:' + total + 'px">' + cg.join('') + hd.join('')
     + '<tbody>' + renderRows(sh, ord, 0, SHOWN) + '</tbody></table>'
     + (SHOWN < ord.length ? '<button id="more"></button>' : '');
 
@@ -1351,6 +1532,7 @@ function render(sh){
   $('cap').textContent = ord.length.toLocaleString() + '행 × ' + nCol + '열'
     + (hid ? ' · 숨김 ' + sh.hideR.size + '행/' + sh.hideC.size + '열' : '');
   $('q').value = ''; HITS = []; HI = -1; $('qn').textContent = '';
+  PAINTED = []; ROWEL = new Map(); indexRows(null);
   SEL = null; ANCH = null; stat();
   $('grid').scrollTop = 0;
 }
@@ -1404,7 +1586,7 @@ function freeze(sh){
     for (let c = 0; c < fz.x; c++){
       if (sh.hideC.has(c)) continue;
       css += '#grid td.fzx' + c + '{left:' + left + 'px;background:var(--head)}\n';
-      left += sh.widths[c] || 90;
+      left += sh.widths[c];
     }
     const el = document.getElementById('fzs');
     if (el) el.textContent = css;
@@ -1422,9 +1604,14 @@ function loadMore(){
   const b = $('more');
   if (!b) return;
   const to = Math.min(CUR._ord.length, SHOWN + CHUNK);
-  $('grid').querySelector('tbody').insertAdjacentHTML('beforeend', renderRows(CUR, CUR._ord, SHOWN, to));
+  const tb0 = $('grid').querySelector('tbody');
+  const lastBefore = tb0.lastElementChild;
+  tb0.insertAdjacentHTML('beforeend', renderRows(CUR, CUR._ord, SHOWN, to));
   SHOWN = to;
+  indexRows(lastBefore ? lastBefore.nextElementSibling : null);
   if (SHOWN >= CUR._ord.length) b.remove(); else updMore();
+  const q = $('q').value.trim().toLowerCase();
+  if (q){ const n = HI; markHits(q); HI = Math.min(n, HITS.length - 1); }
 }
 
 /* ---------------- 탭 ---------------- */
@@ -1469,22 +1656,44 @@ function selRange(){
     c1: Math.min(SEL.c1, SEL.c2), c2: Math.max(SEL.c1, SEL.c2)
   };
 }
+let PAINTED = [], ROWEL = new Map();
+function indexRows(startEl){
+  // 새로 추가된 행만 형제 순회로 인덱싱 (전체 재조회 없음)
+  let tr = startEl;
+  if (!tr){
+    const tb = $('grid').querySelector('tbody');
+    if (!tb) return;
+    tr = tb.firstElementChild;
+  }
+  for (; tr; tr = tr.nextElementSibling) ROWEL.set(+tr.dataset.r, tr);
+}
 function paint(){
-  $('grid').querySelectorAll('td.rng').forEach(td => td.classList.remove('rng'));
+  for (const td of PAINTED) td.classList.remove('rng');
+  PAINTED.length = 0;
   const r = selRange();
   if (!r) return;
-  for (const td of $('grid').querySelectorAll('td.cell')){
-    const rr = +td.dataset.r, cc = +td.dataset.c;
-    if (rr >= r.r1 && rr <= r.r2 && cc >= r.c1 && cc <= r.c2) td.classList.add('rng');
+  // 선택 범위의 행만 직접 조회
+  for (let rr = r.r1; rr <= r.r2; rr++){
+    const tr = ROWEL.get(rr);
+    if (!tr) continue;
+    const tds = tr.children;
+    for (let k = 0, L = tds.length; k < L; k++){
+      const td = tds[k];
+      if (td.tagName !== 'TD') continue;
+      const cc = +td.dataset.c;
+      if (cc >= r.c1 && cc <= r.c2){ td.classList.add('rng'); PAINTED.push(td); }
+    }
   }
 }
 function stat(){
   const r = selRange();
   if (!r || (r.r1 === r.r2 && r.c1 === r.c2)){ $('stat').textContent = ''; return; }
   let n = 0, cnt = 0, sum = 0, mn = Infinity, mx = -Infinity;
-  for (let i = r.r1; i <= r.r2; i++){
+  const R2 = Math.min(r.r2, r.r1 + 200000);
+  for (let i = r.r1; i <= R2; i++){
     if (CUR.hideR.has(i)) continue;
-    const row = CUR.rows[i] || [];
+    const row = CUR.rows[i];
+    if (!row) continue;
     for (let c = r.c1; c <= r.c2; c++){
       if (CUR.hideC.has(c)) continue;
       const cell = row[c];
@@ -1499,7 +1708,7 @@ function stat(){
     : '개수 <b>' + cnt + '</b>';
 }
 function showCell(td){
-  $('addr').textContent = td.dataset.a || '—';
+  $('addr').textContent = td.dataset.c !== undefined ? addrOf(td) : '—';
   $('cellval').textContent = td.textContent;
 }
 
@@ -1537,23 +1746,52 @@ async function openFiles(list){
   if (!FILES.length) return;
   $('drop').style.display = 'none';
   $('main').style.display = 'flex';
-  ['q','csv','copy','prev','next','fmt','hide'].forEach(id => $(id).disabled = false);
+  ['q','csv','copy','prev','next','fmt','hide','wrap','fit'].forEach(id => $(id).disabled = false);
   await pickFile(FILES.length - 1);
 }
 
 /* ---------------- 검색 ---------------- */
 function search(){
   const q = $('q').value.trim().toLowerCase();
-  $('grid').querySelectorAll('td.hit, td.cur').forEach(td => td.classList.remove('hit', 'cur'));
+  for (const td of $('grid').querySelectorAll('td.hit, td.cur')) td.classList.remove('hit', 'cur');
   HITS = []; HI = -1;
   if (!q){ $('qn').textContent = ''; return; }
-  while ($('more')) loadMore();
-  for (const td of $('grid').querySelectorAll('td.cell')){
-    if (CUR.hideC.has(+td.dataset.c) || CUR.hideR.has(+td.dataset.r)) continue;
-    if (td.textContent.toLowerCase().includes(q)){ td.classList.add('hit'); HITS.push(td); }
+
+  // 1) 데이터 모델에서 먼저 탐색 (DOM 스캔·전체 로드 없이)
+  const hitRows = [];
+  const { rows, hideR, hideC, _ord: ord } = CUR;
+  let total = 0;
+  for (let i = 0; i < ord.length; i++){
+    const r = ord[i];
+    if (hideR.has(r)) continue;
+    const row = rows[r];
+    if (!row) continue;
+    let found = false;
+    for (let c = 0; c < row.length; c++){
+      const cell = row[c];
+      if (!cell || hideC.has(c)) continue;
+      if (cell.v.toLowerCase().includes(q)){ total++; found = true; }
+    }
+    if (found) hitRows.push(i);
   }
-  $('qn').textContent = HITS.length ? '1/' + HITS.length : '0건';
+  $('qn').textContent = total ? '1/' + total : '0건';
+  if (!total) return;
+
+  // 2) 결과가 있는 위치까지만 DOM 로드
+  const last = hitRows[hitRows.length - 1];
+  let guard = 0;
+  while (SHOWN <= last && $('more') && guard++ < 500) loadMore();
+
+  // 3) 로드된 범위에서 하이라이트
+  markHits(q);
   if (HITS.length) move(0);
+}
+function markHits(q){
+  HITS = [];
+  const tb = $('grid').querySelector('tbody');
+  if (!tb) return;
+  for (const td of tb.querySelectorAll('td.cell'))
+    if (td.textContent.toLowerCase().includes(q)){ td.classList.add('hit'); HITS.push(td); }
 }
 function move(i){
   if (!HITS.length) return;
@@ -1629,31 +1867,83 @@ grid.addEventListener('scroll', () => {
   if ($('more') && grid.scrollTop + grid.clientHeight > grid.scrollHeight - 400) loadMore();
 });
 
-// 열 너비 드래그
+// 열 너비 드래그 (손잡이 전용 → 정렬 클릭과 충돌 없음)
 let RZ = null;
-grid.addEventListener('mousemove', e => {
-  const th = e.target.closest('thead th[data-c]');
-  if (th) th.classList.toggle('res', e.offsetX > th.offsetWidth - 6);
-});
+function setW(sh, c, w){
+  sh.widths[c] = Math.max(40, Math.min(1200, Math.round(w)));
+}
+function applyW(sh){
+  const cols = sh._cols || [];
+  const cg = grid.querySelectorAll('colgroup col');
+  let total = 46;
+  cols.forEach((c, i) => {
+    const col = cg[i + 1];
+    if (col) col.style.width = sh.widths[c] + 'px';
+    total += sh.widths[c];
+  });
+  const tbl = grid.querySelector('table');
+  if (tbl) tbl.style.width = total + 'px';
+  freeze(sh);
+}
 grid.addEventListener('mousedown', e => {
-  const th = e.target.closest('thead th[data-c]');
-  if (th && e.offsetX > th.offsetWidth - 6){
-    e.preventDefault();
-    RZ = { c: +th.dataset.c, x: e.clientX, w: th.offsetWidth };
-  }
+  const h = e.target.closest('.rz');
+  if (!h) return;
+  e.preventDefault();
+  e.stopPropagation();                       // 정렬 트리거 차단
+  const c = +h.dataset.rz;
+  RZ = { c, x: e.clientX, w: CUR.widths[c] };
+  document.body.style.cursor = 'col-resize';
 }, true);
 document.addEventListener('mousemove', e => {
   if (!RZ) return;
-  const w = Math.max(36, RZ.w + e.clientX - RZ.x);
-  const col = grid.querySelectorAll('colgroup col')[RZ.c + 1];
-  if (col) col.style.width = w + 'px';
-  CUR.widths[RZ.c] = w;
+  setW(CUR, RZ.c, RZ.w + e.clientX - RZ.x);
+  applyW(CUR);
 });
-document.addEventListener('mouseup', () => { if (RZ){ RZ = null; freeze(CUR); } });
+document.addEventListener('mouseup', () => {
+  if (RZ){ RZ = null; document.body.style.cursor = ''; }
+});
+
+/* 내용에 맞춰 너비 자동 계산 */
+function measure(sh, c){
+  let w = 3;
+  const N = Math.min(sh.rows.length, 2000);
+  for (let r = 0; r < N; r++){
+    if (sh.hideR.has(r)) continue;
+    const cell = (sh.rows[r] || [])[c];
+    if (!cell) continue;
+    let n = 0;
+    const t = cell.v;
+    for (let i = 0; i < t.length; i++){
+      const ch = t.charCodeAt(i);
+      if (ch === 10){ n = 0; continue; }      // 줄바꿈은 최장 줄 기준
+      n += ch > 0x2000 ? 1.85 : 1;
+      if (n > w) w = n;
+    }
+  }
+  return Math.max(48, Math.min(600, Math.round(w * 7.4) + 20));
+}
+function fitCol(c){ setW(CUR, c, measure(CUR, c)); applyW(CUR); }
+function fitAll(){
+  const r = selRange();
+  const target = r && r.c1 !== r.c2 ? CUR._cols.filter(c => c >= r.c1 && c <= r.c2) : CUR._cols;
+  for (const c of target) setW(CUR, c, measure(CUR, c));
+  applyW(CUR);
+}
+grid.addEventListener('dblclick', e => {
+  const h = e.target.closest('.rz');
+  if (h){ e.preventDefault(); e.stopPropagation(); fitCol(+h.dataset.rz); }
+}, true);
 
 // 키보드
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'f'){ e.preventDefault(); $('q').focus(); $('q').select(); return; }
+  if (e.altKey && (e.key === 'w' || e.key === 'W')){ e.preventDefault(); $('wrap').click(); return; }
+  if (e.altKey && (e.key === 'f' || e.key === 'F')){ e.preventDefault(); if (CUR) fitAll(); return; }
+  if (e.key === 'Enter' && !e.shiftKey && ANCH && e.target.tagName !== 'INPUT'){
+    const tr1 = ROWEL.get(ANCH.r);
+    const td = tr1 ? tr1.querySelector('td[data-c="' + ANCH.c + '"]') : null;
+    if (td && td.textContent){ e.preventDefault(); showPop(td); return; }
+  }
   if (e.target.tagName === 'INPUT') return;
   if (!ANCH || !CUR) return;
   const map = { ArrowUp:[-1,0], ArrowDown:[1,0], ArrowLeft:[0,-1], ArrowRight:[0,1] };
@@ -1670,7 +1960,8 @@ document.addEventListener('keydown', e => {
   const r = vr[ri], c = vc[ci];
   ANCH = { r, c };
   SEL = e.shiftKey && SEL ? { ...SEL, r2: r, c2: c } : { r1: r, c1: c, r2: r, c2: c };
-  const td = grid.querySelector('td[data-r="' + r + '"][data-c="' + c + '"]');
+  const tr0 = ROWEL.get(r);
+  const td = tr0 ? tr0.querySelector('td[data-c="' + c + '"]') : null;
   if (td){
     grid.querySelectorAll('td.cur').forEach(x => x.classList.remove('cur'));
     td.classList.add('cur');
@@ -1701,7 +1992,8 @@ $('csv').onclick = () => {
 $('copy').onclick = async () => {
   const r = selRange();
   const tsv = grid2d(CUR, r && (r.r1 !== r.r2 || r.c1 !== r.c2) ? r : null)
-    .map(x => x.join('\t')).join('\n');
+    .map(x => x.map(v => /[\t\r\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v).join('\t'))
+    .join('\r\n');
   const b = $('copy');
   try { await navigator.clipboard.writeText(tsv); b.textContent = '복사됨'; }
   catch {
@@ -1738,6 +2030,51 @@ $('unhide').onclick = () => {
   CUR.hideC.clear(); CUR.hideR.clear();
   applyHide();
 };
+
+/* 셀 더블클릭 → 전체 내용 팝업 */
+const pop = $('pop');
+function showPop(td){
+  const txt = td.textContent;
+  pop.innerHTML = '';
+  const b = document.createElement('b');
+  b.textContent = addrOf(td) + '  ·  ' + [...txt].length + '자';
+  const body = document.createElement('div');
+  body.textContent = txt;
+  const btn = document.createElement('button');
+  btn.className = 'cp'; btn.textContent = '복사';
+  btn.onclick = async ev => {
+    ev.stopPropagation();
+    try { await navigator.clipboard.writeText(txt); btn.textContent = '복사됨'; }
+    catch { btn.textContent = '복사 실패'; }
+    setTimeout(() => btn.textContent = '복사', 1000);
+  };
+  pop.append(b, body, btn);
+  pop.style.display = 'block';
+  const r = td.getBoundingClientRect();
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let x = Math.min(r.left, innerWidth - pw - 12);
+  let y = r.bottom + 6;
+  if (y + ph > innerHeight - 8) y = Math.max(8, r.top - ph - 6);
+  pop.style.left = Math.max(8, x) + 'px';
+  pop.style.top = y + 'px';
+}
+function hidePop(){ pop.style.display = 'none'; }
+grid.addEventListener('dblclick', e => {
+  const td = e.target.closest('td.cell');
+  if (td && td.textContent) showPop(td);
+});
+document.addEventListener('mousedown', e => { if (!e.target.closest('#pop')) hidePop(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hidePop(); });
+grid.addEventListener('scroll', hidePop);
+
+/* 줄바꿈 모드: 긴 텍스트를 여러 줄로 펼쳐 보기 */
+$('wrap').onclick = () => {
+  const on = grid.classList.toggle('wrap');
+  $('wrap').classList.toggle('on', on);
+  $('wrap').textContent = on ? '한 줄' : '줄바꿈';
+  freeze(CUR);
+};
+$('fit').onclick = fitAll;
 
 $('fmt').onclick = () => {
   const on = grid.classList.toggle('fmt');
