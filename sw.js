@@ -1,5 +1,5 @@
 /* 오프라인 캐시: 앱 파일만 저장. 사용자의 엑셀 파일은 절대 저장/전송하지 않음. */
-const CACHE = 'sheet-viewer-v5.4';
+const CACHE = 'sheet-viewer-v6.0';
 const ASSETS = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', e => {

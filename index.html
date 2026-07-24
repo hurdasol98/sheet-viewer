@@ -163,7 +163,7 @@
   <span id="cellval">셀 더블클릭 = 전체 보기 · 헤더 경계 드래그 = 너비 · 더블클릭 = 자동 맞춤</span>
   <span id="stat"></span>
   <span id="cap" style="flex:0 0 auto"></span>
-  <span id="ver" style="opacity:.6;flex:0 0 auto">v5.8</span>
+  <span id="ver" style="opacity:.6;flex:0 0 auto">v6.0</span>
 </footer>
 
 <script>
@@ -261,7 +261,7 @@ async function unzip(buf){
   let eocd = -1;
   for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--)
     if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
-  if (eocd < 0) throw new Error('ZIP 구조가 아닙니다.');
+  if (eocd < 0) throw new Error('파일이 손상되었거나 전송 중 잘렸습니다. 원본을 다시 받아 주세요.');
   let count = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
   if (cdOff === 0xffffffff || count === 0xffff){
     for (let i = eocd - 20; i >= 0; i--) if (dv.getUint32(i, true) === 0x07064b50){
@@ -360,16 +360,20 @@ function tintHex(hex, tint){
   const hx = v => pad(Math.round(v * 255).toString(16)).toUpperCase();
   return hx(R) + hx(G) + hx(B);
 }
+const HEX6 = /^[0-9A-Fa-f]{6}$/;
+const safeHex = h => (h && HEX6.test(h)) ? h.toUpperCase() : null;
 function colorOf(node, theme){
   if (!node) return null;
   const rgb = node.getAttribute('rgb');
-  const tint = parseFloat(node.getAttribute('tint') || 0);
+  let tint = parseFloat(node.getAttribute('tint') || 0);
+  if (!isFinite(tint)) tint = 0;
   let hex = null;
-  if (rgb) hex = rgb.length === 8 ? rgb.slice(2) : rgb;
-  else if (node.hasAttribute('theme')) hex = theme[+node.getAttribute('theme')] || null;
-  else if (node.hasAttribute('indexed')) hex = INDEXED[+node.getAttribute('indexed')] || null;
+  if (rgb) hex = safeHex(rgb.length === 8 ? rgb.slice(2) : rgb);
+  else if (node.hasAttribute('theme')) hex = safeHex(theme[+node.getAttribute('theme')]);
+  else if (node.hasAttribute('indexed')) hex = safeHex(INDEXED[+node.getAttribute('indexed')]);
   if (!hex) return null;
-  return '#' + tintHex(hex.toUpperCase(), tint);
+  const out = tintHex(hex, tint);
+  return HEX6.test(out) ? '#' + out : null;
 }
 
 /* ---------------- 숫자/날짜 서식 엔진 ---------------- */
@@ -401,12 +405,18 @@ const DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function fmtDate(v, sec, d1904){
   const base = d1904 ? 24107 : 25569;
-  let ms = (v - base) * 86400000;
-  // 엑셀과 동일하게 표시 단위(초)로 반올림 — 부동소수 오차로 1초 밀리는 것 방지
+  // 엑셀 1900 체계는 존재하지 않는 1900-02-29(serial 60)를 포함 → 그 이전 날짜 보정
+  let sv = v, fake29 = false;
+  if (!d1904 && v < 61){
+    if (v >= 60 && v < 61) fake29 = true;
+    sv = v + 1;
+  }
+  let ms = (sv - base) * 86400000;
   ms = /s+\.0/i.test(sec) ? Math.round(ms * 10) / 10 : Math.round(ms / 1000) * 1000;
   const dt = new Date(ms);
   if (isNaN(dt)) return String(v);
-  const Y = dt.getUTCFullYear(), M = dt.getUTCMonth() + 1, D = dt.getUTCDate();
+  let Y = dt.getUTCFullYear(), M = dt.getUTCMonth() + 1, D = dt.getUTCDate();
+  if (fake29){ Y = 1900; M = 2; D = 29; }
   const h24 = dt.getUTCHours(), mi = dt.getUTCMinutes(), se = dt.getUTCSeconds();
   const ap = /am\/pm|a\/p/i.test(sec);
   const h12 = h24 % 12 || 12;
@@ -420,8 +430,8 @@ function fmtDate(v, sec, d1904){
     if ((m = /^(am\/pm|a\/p)/i.exec(rest))){ out += h24 < 12 ? 'AM' : 'PM'; i += m[0].length; continue; }
     if ((m = /^y{3,4}/i.exec(rest))){ out += Y; i += m[0].length; continue; }
     if ((m = /^y{1,2}/i.exec(rest))){ out += pad(Y % 100); i += m[0].length; continue; }
-    if ((m = /^d{4}/i.exec(rest))){ out += DAY[dt.getUTCDay()]; i += 4; continue; }
-    if ((m = /^d{3}/i.exec(rest))){ out += DAY[dt.getUTCDay()]; i += 3; continue; }
+    if ((m = /^d{4}/i.exec(rest))){ out += DAY[fake29 ? 3 : dt.getUTCDay()]; i += 4; continue; }
+    if ((m = /^d{3}/i.exec(rest))){ out += DAY[fake29 ? 3 : dt.getUTCDay()]; i += 3; continue; }
     if ((m = /^d{2}/i.exec(rest))){ out += pad(D); i += 2; continue; }
     if ((m = /^d/i.exec(rest))){ out += D; i += 1; continue; }
     if ((m = /^h{1,2}/i.exec(rest))){ const hv = ap ? h12 : h24; out += m[0].length > 1 ? pad(hv) : hv; i += m[0].length; continue; }
@@ -446,30 +456,47 @@ function fmtDate(v, sec, d1904){
 
 function fmtNumber(v, sec){
   let s = sec.replace(/\[[^\]]*\]/g, '');
-  const pct = s.includes('%');
-  if (pct) v *= 100;
+  if (s.includes('%')) v *= 100;
+  let pm = /[#0?][#0,.?]*/.exec(s);
+  if (!pm) return { text: s.replace(/"([^"]*)"/g, '$1').replace(/\\(.)/g, '$1').replace(/_./g, ' ') };
+
+  let pat = pm[0];
+  // 패턴 끝의 콤마 = 1000 단위 축약 (예: #,##0, → 천 단위)
+  const tail = /,+$/.exec(pat);
+  if (tail){
+    v /= Math.pow(1000, tail[0].length);
+    pat = pat.slice(0, -tail[0].length);
+  }
   const sign = v < 0 ? '-' : '';
-  const pm = /[#0][#0,.?]*/.exec(s);
-  if (!pm) return { text: s.replace(/"/g, '').replace(/\\/g, '').replace(/_./g, ' '), };
-  const pat = pm[0];
   const dot = pat.indexOf('.');
   const dec = dot < 0 ? 0 : (pat.slice(dot + 1).match(/[0#?]/g) || []).length;
-  const minInt = ((dot < 0 ? pat : pat.slice(0, dot)).match(/0/g) || []).length;
-  const grp = /[#0],[#0]/.test(pat) || /,#|,0/.test(pat);
-  const isE = /E\+?0/i.test(s);
+  const intPat = dot < 0 ? pat : pat.slice(0, dot);
+  const minInt = (intPat.match(/0/g) || []).length;
+  const grp = /[#0?],[#0?]/.test(pat);
+  const em = /E([+-]?)(0+)/i.exec(s);
 
   let body;
-  if (isE) body = v.toExponential(dec);
-  else {
-    const fixed = Math.abs(v).toFixed(dec);
+  if (em){
+    const expDigits = em[2].length;
+    const t = Math.abs(v).toExponential(dec);
+    const mi = t.indexOf('e');
+    let mant = t.slice(0, mi);
+    let ex = +t.slice(mi + 1);
+    const es = ex < 0 ? '-' : (em[1] === '+' ? '+' : '');
+    body = sign + mant + 'E' + es + String(Math.abs(ex)).padStart(expDigits, '0');
+  } else {
+    const fixed = Math.abs(v).toFixed(Math.min(dec, 100));
     let [ip, fp] = fixed.split('.');
     if (ip.length < minInt) ip = ip.padStart(minInt, '0');
     if (grp) ip = ip.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    if (minInt === 0 && ip === '0' && dec > 0) ip = '';
+    if (minInt === 0 && ip === '0') ip = '';        // '#' 서식의 0 은 표시하지 않음
     body = sign + ip + (fp ? '.' + fp : '');
+    if (body === '' || body === '-') body = sign;
   }
-  let out = s.slice(0, pm.index) + body + s.slice(pm.index + pat.length);
-  out = out.replace(/E\+?0+/i, '').replace(/"([^"]*)"/g, '$1').replace(/\\(.)/g, '$1').replace(/_./g, ' ').replace(/\*(.)/g, '');
+  const endAt = em ? Math.max(pm.index + pm[0].length, em.index + em[0].length)
+                   : pm.index + pm[0].length;
+  let out = s.slice(0, pm.index) + body + s.slice(endAt);
+  out = out.replace(/"([^"]*)"/g, '$1').replace(/\\(.)/g, '$1').replace(/_./g, ' ').replace(/\*(.)/g, '');
   return { text: out };
 }
 
@@ -478,10 +505,14 @@ function makeFmt(code, d1904){
   const secs = splitSections(code);
   return v => {
     if (typeof v !== 'number') return { text: String(v) };
-    const i = v > 0 ? 0 : v < 0 ? Math.min(1, secs.length - 1) : Math.min(2, secs.length - 1);
+    // 엑셀 규칙: 양수;음수;0;문자 — 0 은 3번째 섹션이 있을 때만 사용, 없으면 양수 섹션
+    const i = v > 0 ? 0
+            : v < 0 ? (secs.length > 1 ? 1 : 0)
+            : (secs.length > 2 ? 2 : 0);
     let sec = secs[i] || secs[0];
     const red = /\[Red\]/i.test(sec);
-    if (isDateFmt(sec)) return { text: fmtDate(v, sec, d1904), red };
+    // 엑셀은 음수 날짜를 표시할 수 없음(####) → 원래 숫자를 보여줌
+    if (isDateFmt(sec)) return v < 0 ? { text: String(v), red } : { text: fmtDate(v, sec, d1904), red };
     // 음수 전용 섹션이 있으면 그 섹션이 부호를 표기하므로 절대값 전달
     const r = fmtNumber(secs.length > 1 && i === 1 ? Math.abs(v) : v, sec);
     return { text: r.text, red };
@@ -654,7 +685,7 @@ async function parseXlsx(buf){
     const cs = XML(th).getElementsByTagName('clrScheme')[0];
     if (cs) for (const c of cs.children){
       const srgb = c.getElementsByTagName('srgbClr')[0], sys = c.getElementsByTagName('sysClr')[0];
-      theme.push((srgb && srgb.getAttribute('val')) || (sys && sys.getAttribute('lastClr')) || '000000');
+      theme.push(safeHex((srgb && srgb.getAttribute('val')) || (sys && sys.getAttribute('lastClr'))) || '000000');
     }
     if (theme.length >= 4){ [theme[0], theme[1]] = [theme[1], theme[0]]; [theme[2], theme[3]] = [theme[3], theme[2]]; }
   }
@@ -719,14 +750,17 @@ async function parseXlsx(buf){
       const code = codes[id] !== undefined ? codes[id] : (BUILTIN[id] || 'General');
       const al = xf.getElementsByTagName('alignment')[0];
       const f = fonts[+(xf.getAttribute('fontId') || 0)] || {};
+      const HA_OK = { left:'left', center:'center', right:'right', justify:'justify',
+                      distributed:'center', centerContinuous:'center', fill:'left', general:null };
+      const VA_OK = { top:'top', center:'middle', bottom:'bottom', justify:'top', distributed:'middle' };
       styles.push({
         fmt: makeFmt(code, d1904),
         text: code === '@',
         bg: xf.getAttribute('applyFill') === '0' ? null : (fills[+(xf.getAttribute('fillId') || 0)] || null),
         font: f,
         bd: borders[+(xf.getAttribute('borderId') || 0)] || null,
-        ha: al ? al.getAttribute('horizontal') : null,
-        va: al ? al.getAttribute('vertical') : null,
+        ha: al ? (HA_OK[al.getAttribute('horizontal')] || null) : null,
+        va: al ? (VA_OK[al.getAttribute('vertical')] || null) : null,
         wrap: al ? /1|true/.test(al.getAttribute('wrapText') || '') : false
       });
     }
@@ -914,10 +948,18 @@ function applyCF(doc, sh, dxfs, theme){
     if (i >= 0) cell.cf = i;
   };
 
+  // 엑셀은 priority 숫자가 작을수록 우선 → 전체 블록의 규칙을 모아 큰 값부터 적용(나중 적용이 이김)
+  const jobs = [];
   for (const cf of cfs){
     const ranges = parseSqref(cf.getAttribute('sqref') || '');
-    const rules = [...cf.getElementsByTagName('cfRule')]
-      .sort((a, b) => (+b.getAttribute('priority') || 0) - (+a.getAttribute('priority') || 0));
+    for (const rule of cf.getElementsByTagName('cfRule'))
+      jobs.push({ ranges, rule, pr: +(rule.getAttribute('priority') || 1e9) });
+  }
+  jobs.sort((a, b) => b.pr - a.pr);
+
+  for (const job of jobs){
+    const ranges = job.ranges;
+    const rules = [job.rule];
 
     const cells = [];
     for (const r of ranges)
@@ -1126,7 +1168,11 @@ function rkNum(v){
 function parseXls(buf){
   const get = cfbStreams(buf);
   const wbBuf = get('Workbook') || get('Book');
-  if (!wbBuf) throw new Error('Workbook 스트림을 찾지 못했습니다.');
+  if (!wbBuf){
+    if (get('EncryptedPackage') || get('EncryptionInfo'))
+      throw new Error('암호가 설정된 파일입니다. 엑셀에서 암호를 해제한 뒤 열어 주세요.');
+    throw new Error('엑셀 통합문서를 찾지 못했습니다. 손상되었거나 지원하지 않는 형식입니다.');
+  }
   const dv = new DataView(wbBuf.buffer, wbBuf.byteOffset, wbBuf.length);
 
   // 레코드 스캔
@@ -1346,7 +1392,7 @@ function parseXls(buf){
 }
 
 /* ---------------- 상태 ---------------- */
-const CHUNK = 2000;
+const CHUNK = 2000, COLCHUNK = 150, MAXCELL = 90000;
 let FILES = [], FI = 0, SHEETS = [], CUR = null, SHOWN = 0;
 let HITS = [], HI = -1, SORT = null, SEL = null, ANCH = null, DRAG = false;
 
@@ -1364,9 +1410,10 @@ function styleCSS(sh){
     if (s.font.b) d.push('font-weight:700');
     if (s.font.i) d.push('font-style:italic');
     if (s.font.u || s.font.st) d.push('text-decoration:' + [s.font.u && 'underline', s.font.st && 'line-through'].filter(Boolean).join(' '));
-    if (s.font.size && s.font.size !== 11) d.push('font-size:' + (s.font.size * 1.18).toFixed(1) + 'px');
-    if (s.ha) d.push('text-align:' + (s.ha === 'general' ? 'left' : s.ha));
-    if (s.va) d.push('vertical-align:' + (s.va === 'center' ? 'middle' : s.va));
+    const fsz = +s.font.size;
+    if (fsz && isFinite(fsz) && fsz !== 11) d.push('font-size:' + Math.max(6, Math.min(72, fsz * 1.18)).toFixed(1) + 'px');
+    if (s.ha) d.push('text-align:' + s.ha);
+    if (s.va) d.push('vertical-align:' + s.va);
     if (s.wrap) d.push('white-space:pre-wrap');
     if (s.bd){
       if (s.bd.t) d.push('border-top:' + s.bd.t);
@@ -1374,9 +1421,15 @@ function styleCSS(sh){
       if (s.bd.b) d.push('border-bottom:' + s.bd.b);
       if (s.bd.l) d.push('border-left:' + s.bd.l);
     }
-    if (d.length) out.push('#grid.fmt td.s' + i + '{' + d.join(';') + '}');
+    // 최종 방어: 중괄호·세미콜론 주입이나 url() 이 섞이면 해당 스타일 폐기
+    const decl = d.join(';');
+    if (d.length && !/[{}<>]|url\s*\(|@import|expression\s*\(/i.test(decl))
+      out.push('#grid.fmt td.s' + i + '{' + decl + '}');
   }
-  (sh.cfCss || []).forEach((c, i) => out.push('#grid.fmt td.cf' + i + '{' + c + '}'));
+  (sh.cfCss || []).forEach((c, i) => {
+    if (!/[{}<>]|url\s*\(|@import|expression\s*\(/i.test(c))
+      out.push('#grid.fmt td.cf' + i + '{' + c + '}');
+  });
   out.push('#grid.fmt td.red{color:#c00!important}');
   return (sh._css = out.join('\n'));
 }
@@ -1413,7 +1466,7 @@ function ensureWidths(sh){
 }
 function seq(n){ const a = new Array(n); for (let i = 0; i < n; i++) a[i] = i; return a; }
 function order(sh){
-  if (!SORT) return seq(sh.rows.length);
+  if (!SORT) return sh._seq && sh._seq.length === sh.rows.length ? sh._seq : (sh._seq = seq(sh.rows.length));
   const { c, dir, head } = SORT;
   const idx = seq(sh.rows.length);
   const body = idx.slice(head);
@@ -1433,7 +1486,7 @@ function buildMerge(sh){
   const cover = new Map(), skip = new Set();
   for (const m of sh.merges){
     const cs = [], rws = [];
-    for (let c = m.c1; c <= m.c2; c++) if (!sh.hideC.has(c)) cs.push(c);
+    for (let c = m.c1; c <= m.c2; c++) if (sh._colSet.has(c)) cs.push(c);
     for (let r = m.r1; r <= m.r2; r++) if (!sh.hideR.has(r)) rws.push(r);
     if (!cs.length || !rws.length) continue;
     const ar = rws[0], ac = cs[0];
@@ -1488,15 +1541,21 @@ function renderRows(sh, ord, from, to){
 function render(sh){
   const nCol = sh.maxC + 1;
   ensureWidths(sh);
-  const cols = [];
-  for (let c = 0; c < nCol; c++) if (!sh.hideC.has(c)) cols.push(c);
+  const all = [];
+  for (let c = 0; c < nCol; c++) if (!sh.hideC.has(c)) all.push(c);
+  sh._colsAll = all;
+  if (!sh._colCap) sh._colCap = COLCHUNK;      // 사용자가 펼친 상한(열 개수 변동과 무관)
+  const cols = all.slice(0, sh._colCap);
   sh._cols = cols;
+  sh._colSet = new Set(cols);
+  // 열이 많으면 한 번에 그리는 행 수를 줄여 메모리 폭주 방지
+  ROWCHUNK = Math.max(40, Math.min(CHUNK, Math.round(MAXCELL / Math.max(1, cols.length))));
 
   buildMerge(sh);
   const ord = order(sh);
   sh._ord = ord;
-  sh._vis = ord.filter(r => !sh.hideR.has(r));
-  SHOWN = Math.min(ord.length, CHUNK);
+  sh._vis = sh.hideR.size ? ord.filter(r => !sh.hideR.has(r)) : ord;
+  SHOWN = Math.min(ord.length, ROWCHUNK);
 
   let total = 46;
   const cg = ['<colgroup><col style="width:46px">'];
@@ -1505,6 +1564,7 @@ function render(sh){
     total += w;
     cg.push('<col style="width:' + w + 'px">');
   }
+  if (cols.length < all.length){ cg.push('<col style="width:70px">'); total += 70; }
   cg.push('</colgroup>');
 
   const gap = new Set();
@@ -1517,6 +1577,8 @@ function render(sh){
       + ' title="클릭: 정렬 · 우클릭: 숨기기">' + colName(c) + ar
       + '<span class="rz" data-rz="' + c + '"></span></th>');
   }
+  const restC = all.length - cols.length;
+  if (restC > 0) hd.push('<th id="morec" style="cursor:pointer;color:var(--accent)" title="클릭하면 열을 더 표시합니다">+' + restC + '열</th>');
   hd.push('</tr></thead>');
 
   $('grid').innerHTML = '<style id="hid"></style><style id="fzs"></style><style id="sty">'
@@ -1529,7 +1591,8 @@ function render(sh){
   freeze(sh);
   hideBtn();
   const hid = sh.hideR.size + sh.hideC.size;
-  $('cap').textContent = ord.length.toLocaleString() + '행 × ' + nCol + '열'
+  $('cap').textContent = ord.length.toLocaleString() + '행 × ' + nCol.toLocaleString() + '열'
+    + (restC > 0 ? ' (' + cols.length + '열 표시 중)' : '')
     + (hid ? ' · 숨김 ' + sh.hideR.size + '행/' + sh.hideC.size + '열' : '');
   $('q').value = ''; HITS = []; HI = -1; $('qn').textContent = '';
   PAINTED = []; ROWEL = new Map(); indexRows(null);
@@ -1585,7 +1648,7 @@ function freeze(sh){
     let left = 46, css = '';
     for (let c = 0; c < fz.x; c++){
       if (sh.hideC.has(c)) continue;
-      css += '#grid td.fzx' + c + '{left:' + left + 'px;background:var(--head)}\n';
+      css += '#grid td.fzx' + (c | 0) + '{left:' + (left | 0) + 'px;background:var(--head)}\n';
       left += sh.widths[c];
     }
     const el = document.getElementById('fzs');
@@ -1597,13 +1660,13 @@ function updMore(){
   const b = $('more');
   if (!b) return;
   const rest = CUR._ord.length - SHOWN;
-  b.textContent = '다음 ' + Math.min(CHUNK, rest).toLocaleString() + '행 표시 (남은 ' + rest.toLocaleString() + '행)';
+  b.textContent = '다음 ' + Math.min(ROWCHUNK, rest).toLocaleString() + '행 표시 (남은 ' + rest.toLocaleString() + '행)';
   b.onclick = loadMore;
 }
 function loadMore(){
   const b = $('more');
   if (!b) return;
-  const to = Math.min(CUR._ord.length, SHOWN + CHUNK);
+  const to = Math.min(CUR._ord.length, SHOWN + ROWCHUNK);
   const tb0 = $('grid').querySelector('tbody');
   const lastBefore = tb0.lastElementChild;
   tb0.insertAdjacentHTML('beforeend', renderRows(CUR, CUR._ord, SHOWN, to));
@@ -1634,7 +1697,7 @@ function drawTabs(){
     b.textContent = sh.name;
     b.className = (sh === CUR ? 'on ' : '') + (sh.hidden ? 'hid' : '');
     if (sh.hidden) b.title = '숨김 시트';
-    b.onclick = async () => { SORT = null; CUR = await sh.load(); drawTabs(); render(CUR); };
+    b.onclick = async () => { SORT = null; CUR = await sh.load(); CUR._colCap = 0; drawTabs(); render(CUR); };
     tb.appendChild(b);
   });
 }
@@ -1656,7 +1719,7 @@ function selRange(){
     c1: Math.min(SEL.c1, SEL.c2), c2: Math.max(SEL.c1, SEL.c2)
   };
 }
-let PAINTED = [], ROWEL = new Map();
+let PAINTED = [], ROWEL = new Map(), ROWCHUNK = 2000;
 function indexRows(startEl){
   // 새로 추가된 행만 형제 순회로 인덱싱 (전체 재조회 없음)
   let tr = startEl;
@@ -1720,15 +1783,28 @@ async function openFiles(list){
       const buf = await file.arrayBuffer();
       const u8 = new Uint8Array(buf);
       let sheets, note = '';
+      if (!u8.length) throw new Error('빈 파일입니다.');
       if (u8[0] === 0x50 && u8[1] === 0x4b){
         sheets = await parseXlsx(buf);
-        if (!sheets.length) throw new Error('시트를 찾지 못했습니다.');
+        if (!sheets.length) throw new Error('시트를 찾지 못했습니다. 엑셀 파일이 맞는지 확인해 주세요.');
       } else if (u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0){
         sheets = parseXls(buf);
         if (!sheets.length) throw new Error('시트를 찾지 못했습니다.');
         note = ' · xls(BIFF8)';
+      } else if (u8[0] === 0x09 && (u8[1] === 0x00 || u8[1] === 0x02 || u8[1] === 0x04)){
+        throw new Error('구형 Excel 형식(BIFF2~5)입니다. 엑셀에서 .xlsx로 다시 저장해 주세요.');
       } else {
         const { text, enc } = decodeText(buf);
+        // 제어문자 비율이 높으면 표 파일이 아님 (랜덤 바이너리·미지원 형식)
+        let ctrl = 0;
+        const lim = Math.min(text.length, 4000);
+        for (let i = 0; i < lim; i++){
+          const c = text.charCodeAt(i);
+          if ((c < 9 || (c > 13 && c < 32) || c === 0xFFFD)) ctrl++;
+        }
+        if (lim && ctrl / lim > 0.05)
+          throw new Error('읽을 수 없는 형식입니다. xlsx·xls·csv·tsv 파일인지 확인해 주세요.');
+        if (!text.trim()) throw new Error('내용이 비어 있는 파일입니다.');
         const d = sniffDelim(text, file.name);
         sheets = [sheetFromCSV(file.name.replace(/\.[^.]+$/, ''), parseCSV(text, d))];
         note = ' · ' + enc + ' · 구분자 ' + (d === '\t' ? 'TAB' : d);
@@ -1760,7 +1836,7 @@ function search(){
   // 1) 데이터 모델에서 먼저 탐색 (DOM 스캔·전체 로드 없이)
   const hitRows = [];
   const { rows, hideR, hideC, _ord: ord } = CUR;
-  let total = 0;
+  let total = 0, maxHitCol = -1;
   for (let i = 0; i < ord.length; i++){
     const r = ord[i];
     if (hideR.has(r)) continue;
@@ -1770,9 +1846,22 @@ function search(){
     for (let c = 0; c < row.length; c++){
       const cell = row[c];
       if (!cell || hideC.has(c)) continue;
-      if (cell.v.toLowerCase().includes(q)){ total++; found = true; }
+      if (cell.v.toLowerCase().includes(q)){
+        total++; found = true;
+        if (c > maxHitCol) maxHitCol = c;
+      }
     }
     if (found) hitRows.push(i);
+  }
+  // 결과가 아직 표시되지 않은 열에 있으면 그 열까지 펼침
+  if (maxHitCol >= 0 && CUR._colsAll){
+    const need = CUR._colsAll.indexOf(maxHitCol) + 1;
+    if (need > CUR._colCap){
+      CUR._colCap = need;
+      const kept = $('q').value;
+      render(CUR);
+      $('q').value = kept;
+    }
   }
   $('qn').textContent = total ? '1/' + total : '0건';
   if (!total) return;
@@ -1832,6 +1921,11 @@ document.body.addEventListener('drop', e => { if (e.dataTransfer.files.length) o
 
 const grid = $('grid');
 grid.addEventListener('mousedown', e => {
+  if (e.target.id === 'morec'){
+    CUR._colCap = Math.min(CUR._colsAll.length, CUR._colCap + COLCHUNK);
+    render(CUR);
+    return;
+  }
   const th = e.target.closest('thead th[data-c]');
   if (th && !e.target.classList.contains('rz')){
     const c = +th.dataset.c;
